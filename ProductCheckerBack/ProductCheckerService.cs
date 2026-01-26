@@ -62,16 +62,43 @@ namespace ProductCheckerBack
             _productCheckerV2DbContext.SaveChanges();
         }
 
-        public int GetProductListingsCount()
+        public List<ProductListings> GetAllProductListings()
         {
             EnsureRequestListingsLoaded();
-            return Request.RequestInfo?.ProductListings?.Count ?? 0;
+
+            return Request?
+                .RequestInfo?
+                .ProductListings?
+                .ToList() ?? new List<ProductListings>();
         }
 
-        public List<ProductListings> GetOrganizedListings()
+        public List<ProductListings> GetErrorProductListings()
         {
             EnsureRequestListingsLoaded();
-            var listings = Request.RequestInfo?.ProductListings?.ToList() ?? new List<ProductListings>();
+
+            var errorStatuses = new HashSet<string> { "Not Available", "Available" };
+
+            return Request?
+                .RequestInfo?
+                .ProductListings?
+                .Where(listing => listing != null && !errorStatuses.Contains(listing.UrlStatus))
+                .ToList() ?? new List<ProductListings>();
+        }
+
+        public List<ProductListings> GetOrganizedListings(bool onlyErrors = false)
+        {
+            EnsureRequestListingsLoaded();
+
+            var listings = new List<ProductListings>();
+            if (onlyErrors || Request.RescanInfoId == 1)
+            {
+                listings = GetErrorProductListings();
+            }
+            else
+            {
+                listings = GetAllProductListings();
+            }
+
             return ProductListingQueueBuilder.BuildRoundRobinByPlatform(listings);
         }
 

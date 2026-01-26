@@ -20,7 +20,7 @@ namespace ProductCheckerBack.RequestState
             {
                 typeof(CheckProductAvailability)
             };
-            processingHandlers.Process(_productCheckerV2DbContext, productCheckerService, new List<string>());
+            processingHandlers.Process(_productCheckerV2DbContext, productCheckerService, new List<string>(), true);
         }
     }
 }

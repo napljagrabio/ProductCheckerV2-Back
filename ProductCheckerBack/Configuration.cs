@@ -28,6 +28,11 @@ namespace ProductCheckerBack
             return Convert.ToInt32(_configuration.GetSection("Refresh").Value);
         }
 
+        public static int GetClearStorageThreshold()
+        {
+            return Convert.ToInt32(_configuration.GetSection("ClearStorageThreshold").Value);
+        }
+
         public static string GetToolName()
         {
             return "Product Checker";

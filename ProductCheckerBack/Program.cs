@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ProductCheckerBack.Models.ProductChecker;
 using ProductCheckerBack.RequestState;
 using ProductCheckerBack.ProductCheckerState;
+using ProductCheckerBack.ProductChecker.Api;
 
 namespace ProductCheckerBack
 {
@@ -29,12 +30,38 @@ namespace ProductCheckerBack
                             try
                             {
                                 productCheckerService = new ProductCheckerService(request, db);
-                                if (productCheckerService.GetProductListingsCount() == 0)
+                                if (productCheckerService.GetAllProductListings().Count == 0)
                                 {
                                     productCheckerService.MarkAsCompletedWithIssues(["Request Failed: No Listings Found"]);
                                     continue;
                                 }
 
+                                try
+                                {
+                                    List<string> restarterUrls = [];
+                                    using (var db1 = new ProductCheckerDbContext())
+                                    {
+                                        restarterUrls = db1.ApiEndpoints
+                                            .Where(s => s.Key == "server_restarter_url")
+                                            .Select(s => s.Value)
+                                            .Where(value => !string.IsNullOrWhiteSpace(value))
+                                            .Select(value => value!.Trim())
+                                            .ToList();
+                                    }
+
+                                    if (restarterUrls.Count > 0)
+                                    {
+                                        using var restarterHttpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+                                        var restarterApi = new ServerRestarterApi(restarterHttpClient);
+                                        var restartTasks = restarterUrls
+                                            .Select(url => restarterApi.Restart(url))
+                                            .ToArray();
+                                        await Task.WhenAll(restartTasks).ConfigureAwait(false);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                }
                                 GetRequestState(productCheckerService, db, request).Process(productCheckerService);
                             }
                             catch (Exception ex)

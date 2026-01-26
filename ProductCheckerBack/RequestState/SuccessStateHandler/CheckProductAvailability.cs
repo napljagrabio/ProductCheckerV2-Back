@@ -1,18 +1,23 @@
 using ProductCheckerBack.Models;
 using ProductCheckerBack.ProductChecker;
+using ProductCheckerBack.ProductChecker.Api;
 using ProductCheckerBack.ProductChecker.Api.Response;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using ProductCheckerBack.Models.ProductChecker;
 
 namespace ProductCheckerBack.RequestState.SuccessStateHandler
 {
     internal class CheckProductAvailability : IHandler
     {
+        private static readonly SemaphoreSlim ClearStorageGate = new SemaphoreSlim(1, 1);
         private sealed class ScanTaskResult
         {
             public int ListingDbId { get; }
@@ -22,6 +27,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             public string Platform { get; }
             public ProductCheckerScanResponse? Status { get; }
             public Exception? Error { get; }
+            public string? ErrorMessage { get; }
 
             public ScanTaskResult(
                 int listingDbId,
@@ -39,45 +45,191 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                 Platform = platform;
                 Status = status;
                 Error = error;
+                ErrorMessage = CheckProductAvailability.TryParseErrorMessage(status?.ErrorDetails);
             }
         }
 
         public IHandler NextHandler { get; set; }
 
-        public void Process(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors)
+        public void Process(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
-            ProcessAsync(productCheckerV2DbContext, productCheckerService, errors)
+            ProcessAsync(productCheckerV2DbContext, productCheckerService, errors, onlyErrors)
                 .GetAwaiter()
                 .GetResult();
         }
 
-        private async Task ProcessAsync(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors)
+        private bool IsNotSupportedListing(ProductListings listing)
         {
-            var allListings = productCheckerService.GetOrganizedListings();
-            if (allListings.Count == 0)
+            if (listing == null || string.IsNullOrEmpty(listing.Platform))
             {
-                errors.Add("Request has no product listings to process.");
+                return false;
+            }
+
+            return listing.Platform.Contains("Not Supported", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? TryParseErrorMessage(string? errorDetails)
+        {
+            if (string.IsNullOrWhiteSpace(errorDetails))
+            {
+                return null;
+            }
+
+            try
+            {
+                using var json = JsonDocument.Parse(errorDetails);
+                if (json.RootElement.TryGetProperty("message", out var messageElement))
+                {
+                    var message = messageElement.GetString();
+                    return string.IsNullOrWhiteSpace(message) ? null : message;
+                }
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+
+            return null;
+        }
+
+        private void FinalizeRequest(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors)
+        {
+            if (productCheckerService.GetErrorProductListings().Count == productCheckerService.GetAllProductListings().Count)
+            {
+                productCheckerService.MarkAsFailed(errors);
+            }
+            else if (productCheckerService.GetErrorProductListings().Count == 0)
+            {
+                productCheckerService.MarkAsSuccess();
+            }
+            else
+            {
+                productCheckerService.MarkAsCompletedWithIssues(errors);
+            }
+
+            if (productCheckerService.Request != null)
+            {
+                productCheckerService.Request.UpdatedAt = DateTime.UtcNow.AddHours(8);
+            }
+
+            Console.Clear();
+
+            NextHandler?.Process(productCheckerV2DbContext, productCheckerService, errors);
+        }
+
+        private async Task TryClearStorageAsync(List<string> errors)
+        {
+            ServerStorageClearerApi? storageClearerApi = null;
+            HttpClient? storageHttpClient = null;
+            List<string> storageClearerUrls = [];
+
+            using (var db = new ProductCheckerDbContext())
+            {
+                storageClearerUrls = db.ApiEndpoints
+                    .Where(s => s.Key == "server_storage_clearer_url")
+                    .Select(s => s.Value)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value!.Trim())
+                    .ToList();
+            }
+
+            if (storageClearerUrls.Count > 0)
+            {
+                storageHttpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+                storageClearerApi = new ServerStorageClearerApi(storageHttpClient);
+            }
+
+            if (storageClearerApi == null || storageClearerUrls.Count == 0)
+            {
                 return;
             }
 
-            //List<string> activeEndpoints;
-            //using (var db = new ProductCheckerDbContext())
-            //{
-            //    activeEndpoints = db.Ports
-            //        .Where(port => port.Status == 0 && !string.IsNullOrWhiteSpace(port.Api))
-            //        .Select(port => port.Api!.Trim())
-            //        .ToList();
-            //}
-            List<string> activeEndpoints = [
-                    "http://172.31.11.95:8011",
-                    "http://172.31.11.95:8012",
-                    "http://172.31.11.95:8013"
-                ];
+            await ClearStorageGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var clearTasks = storageClearerUrls
+                    .Select(url => storageClearerApi.ClearStorage(url))
+                    .ToArray();
+                await Task.WhenAll(clearTasks).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                lock (errors)
+                {
+                    errors.Add($"Storage clear failed: {ex.Message}");
+                }
+            }
+            finally
+            {
+                ClearStorageGate.Release();
+                storageHttpClient?.Dispose();
+            }
+        }
+
+        private async Task ProcessAsync(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
+        {
+            var allListings = new List<ProductListings>();
+            const string NotSupportedMessage = "Not supported platform in Product Checker";
+
+            if (onlyErrors)
+            {
+                allListings = productCheckerService.GetOrganizedListings(onlyErrors);
+            }
+            else
+            {
+                allListings = productCheckerService.GetOrganizedListings();
+            }
+
+            if (allListings.Count == 0)
+            {
+                errors.Add("Request has no product listings to process.");
+                FinalizeRequest(productCheckerV2DbContext, productCheckerService, errors);
+                return;
+            }
+
+            var unsupportedListings = allListings
+                .Where(IsNotSupportedListing)
+                .ToList();
+
+            if (unsupportedListings.Count > 0)
+            {
+                var checkedDate = DateTime.UtcNow.AddHours(8).ToString("yyyy-MM-dd HH:mm:ss");
+                foreach (var listing in unsupportedListings)
+                {
+                    listing.UrlStatus = "Error";
+                    listing.Note = NotSupportedMessage;
+                    listing.ErrorDetail = string.Empty;
+                    listing.CheckedDate = checkedDate;
+                }
+
+                productCheckerV2DbContext.SaveChanges();
+            }
+
+            var supportedListings = allListings
+                .Where(listing => !IsNotSupportedListing(listing))
+                .ToList();
+            var totalListingCount = allListings.Count;
+
+            if (supportedListings.Count == 0)
+            {
+                errors.Add("Request listings has no supported platforms.");
+                FinalizeRequest(productCheckerV2DbContext, productCheckerService, errors);
+                return;
+            }
+
+            List<string> activeEndpoints;
+            using (var db = new ProductCheckerDbContext())
+            {
+               activeEndpoints = db.Ports
+                   .Where(port => port.Status == 0 && !string.IsNullOrWhiteSpace(port.Api))
+                   .Select(port => port.Api!.Trim())
+                   .ToList();
+            }
 
             if (activeEndpoints.Count == 0)
             {
                 errors.Add("No active Product Checker endpoints available.");
-                productCheckerService.MarkAsFailed(errors);
+                FinalizeRequest(productCheckerV2DbContext, productCheckerService, errors);
                 return;
             }
 
@@ -85,11 +237,11 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             var endpointQueue = new ConcurrentQueue<string>(activeEndpoints);
             var endpointSignal = new SemaphoreSlim(activeEndpoints.Count, activeEndpoints.Count);
             var tasks = new List<Task>(allListings.Count);
-            var totalCount = allListings.Count;
+            var totalCount = supportedListings.Count;
             var startedCount = 0;
             var completedCount = 0;
-            var failedCount = 0;
-            var listingById = allListings.ToDictionary(listing => listing.Id);
+            var clearStorageCounter = 0;
+            var listingById = supportedListings.ToDictionary(listing => listing.Id);
 
             var saveTask = Task.Run(() =>
             {
@@ -114,8 +266,11 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                     {
                         listing.UrlStatus = "Error";
                         listing.ErrorDetail = result.Error?.ToString() ?? result.Status?.ErrorDetails ?? "";
-                        listing.Note = result.Status?.Notes ?? string.Empty;
-                        errors.Add($"Listing {result.ListingId} failed.");
+                        listing.Note = result.ErrorMessage ?? result.Status?.Notes ?? string.Empty;
+                        lock (errors)
+                        {
+                            errors.Add($"Listing {result.ListingId} failed.");
+                        }
                         productCheckerV2DbContext.SaveChanges();
                         continue;
                     }
@@ -127,7 +282,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                 }
             });
 
-            foreach (var listing in allListings)
+            foreach (var listing in supportedListings)
             {
                 await endpointSignal.WaitAsync().ConfigureAwait(false);
                 if (!endpointQueue.TryDequeue(out var endpoint))
@@ -163,14 +318,18 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                     }
                     catch (Exception ex)
                     {
-                        Interlocked.Increment(ref failedCount);
                         results.Add(new ScanTaskResult(listingDbId, listingId, caseNumber, url, platform, null, ex));
                     }
                     finally
                     {
                         var done = Interlocked.Increment(ref completedCount);
-                        var failed = failedCount;
-                        Console.WriteLine($"[Scan] Done {done}/{totalCount} listing {listingId} via {endpoint} (failed {failed})");
+                        Console.WriteLine($"[Scan] Done {done}/{totalCount} listing {listingId} via {endpoint}");
+                        var clearCount = Interlocked.Increment(ref clearStorageCounter);
+                        if (clearCount >= Configuration.GetClearStorageThreshold() &&
+                            Interlocked.Exchange(ref clearStorageCounter, 0) >= Configuration.GetClearStorageThreshold())
+                        {
+                            await TryClearStorageAsync(errors).ConfigureAwait(false);
+                        }
                         endpointQueue.Enqueue(endpoint);
                         endpointSignal.Release();
                     }
@@ -181,28 +340,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             results.CompleteAdding();
             await saveTask.ConfigureAwait(false);
             
-            if (errors.Count > 0)
-            {
-                if (errors.Count == totalCount)
-                {
-                    productCheckerService.MarkAsFailed(errors);
-                }
-                else 
-                {
-                    productCheckerService.MarkAsCompletedWithIssues(errors);
-                }
-            }
-            else
-            {
-                productCheckerService.MarkAsSuccess();
-            }
-
-            if (productCheckerService.Request != null)
-            {
-                productCheckerService.Request.UpdatedAt = DateTime.UtcNow.AddHours(8);
-            }
-
-            NextHandler?.Process(productCheckerV2DbContext, productCheckerService, errors);
+            FinalizeRequest(productCheckerV2DbContext, productCheckerService, errors);
         }
     }
 }
