@@ -18,22 +18,33 @@ namespace ProductCheckerBack
         public readonly Request Request;
 
         private readonly HttpClient _httpClient;
-        private readonly ProductCheckerV2DbContext _productCheckerV2DbContext;
+        private readonly ProductCheckerDbContext _productCheckerDbContext;
 
-        public ProductCheckerService(Request request, ProductCheckerV2DbContext dbContext, HttpClient httpClient = null)
+        public ProductCheckerService(Request request, ProductCheckerDbContext dbContext, HttpClient httpClient = null)
         {
             Request = request;
-            _productCheckerV2DbContext = dbContext;
+            _productCheckerDbContext = dbContext;
             _httpClient = httpClient ?? new HttpClient();
         }
 
 #nullable disable
 
+        public void MarkAsPending(bool forcedPendingCauseOfPriority = false)
+        {
+            if (forcedPendingCauseOfPriority) 
+            {
+                Request.RescanInfoId = 1;
+            }
+            Request.Status = RequestStatus.PENDING;
+            Request.RequestEnded = null;
+            _productCheckerDbContext.SaveChanges();
+        }
+
         public void MarkAsProcessing()
         {
             Request.Status = RequestStatus.PROCESSING;
             Request.RequestEnded = null;
-            _productCheckerV2DbContext.SaveChanges();
+            _productCheckerDbContext.SaveChanges();
         }
 
         public void MarkAsCompletedWithIssues(List<string> errors)
@@ -42,7 +53,7 @@ namespace ProductCheckerBack
             Request.Status = RequestStatus.COMPLETED_WITH_ISSUES;
             Request.RequestEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
 
-            _productCheckerV2DbContext.SaveChanges();
+            _productCheckerDbContext.SaveChanges();
         }
 
         public void MarkAsFailed(List<string> errors)
@@ -51,7 +62,7 @@ namespace ProductCheckerBack
             Request.Status = RequestStatus.FAILED;
             Request.RequestEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
 
-            _productCheckerV2DbContext.SaveChanges();
+            _productCheckerDbContext.SaveChanges();
         }
 
         public void MarkAsSuccess()
@@ -59,7 +70,7 @@ namespace ProductCheckerBack
             Request.Status = RequestStatus.SUCCESS;
             Request.RequestEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
 
-            _productCheckerV2DbContext.SaveChanges();
+            _productCheckerDbContext.SaveChanges();
         }
 
         public List<ProductListings> GetAllProductListings()
@@ -106,14 +117,14 @@ namespace ProductCheckerBack
         {
             if (Request.RequestInfo == null)
             {
-                _productCheckerV2DbContext.Entry(Request)
+                _productCheckerDbContext.Entry(Request)
                     .Reference(r => r.RequestInfo)
                     .Load();
             }
 
             if (Request.RequestInfo != null)
             {
-                _productCheckerV2DbContext.Entry(Request.RequestInfo)
+                _productCheckerDbContext.Entry(Request.RequestInfo)
                     .Collection(ri => ri.ProductListings)
                     .Load();
             }

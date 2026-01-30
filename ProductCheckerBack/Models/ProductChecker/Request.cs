@@ -18,6 +18,9 @@ namespace ProductCheckerBack.Models.ProductChecker
         [Column("status")]
         public RequestStatus Status { get; set; } = RequestStatus.PENDING;
 
+        [Column("priority")]
+        public int? Priority { get; set; }
+
         [Column("request_ended")]
         public DateTime? RequestEnded { get; set; }
 

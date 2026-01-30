@@ -10,24 +10,32 @@ namespace ProductCheckerBack
 {
     internal class Logger
     {
-        public static Tool Tool { get; set; }
+        private static readonly Dictionary<string, Tool> ToolsByEnvironment = new Dictionary<string, Tool>(StringComparer.OrdinalIgnoreCase);
+        public static Tool Tool { get; private set; }
 
-        static void InitializeTool()
+        private static Tool GetToolForCurrentEnvironment()
         {
-            if (Tool == null)
+            var environment = Configuration.GetCurrentEnvironment();
+            if (ToolsByEnvironment.TryGetValue(environment, out var tool))
             {
-                LoggingDbContext db = new LoggingDbContext();
-                Tool = db.Tools.First(tool => tool.Name == Configuration.GetToolName());
+                Tool = tool;
+                return tool;
             }
+
+            using var db = new LoggingDbContext();
+            tool = db.Tools.First(t => t.Name == Configuration.GetToolName());
+            ToolsByEnvironment[environment] = tool;
+            Tool = tool;
+            return tool;
         }
 
         public static void Log(Payload payload, string message, string stackTrace)
         {
-            InitializeTool();
-            LoggingDbContext db = new LoggingDbContext();
+            var tool = GetToolForCurrentEnvironment();
+            using var db = new LoggingDbContext();
             db.Logs.Add(new ErrorLog()
             {
-                ToolId = Tool.Id,
+                ToolId = tool.Id,
                 Payload = payload,
                 Message = message,
                 StackTrace = stackTrace

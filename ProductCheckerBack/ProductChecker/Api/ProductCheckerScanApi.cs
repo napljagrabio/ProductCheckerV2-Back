@@ -31,7 +31,9 @@ namespace ProductCheckerBack.ProductChecker.Api
             try
             {
                 var response = await _httpClient.PostAsJsonAsync("scan/product-checker", payload);
-                var envelope = await response.Content.ReadFromJsonAsync<ScanEnvelope>(new JsonSerializerOptions()
+                var raw = await response.Content.ReadAsStringAsync();
+                Console.WriteLine(raw);
+                var envelope = JsonSerializer.Deserialize<ScanEnvelope>(raw, new JsonSerializerOptions()
                 {
                     PropertyNameCaseInsensitive = true
                 });

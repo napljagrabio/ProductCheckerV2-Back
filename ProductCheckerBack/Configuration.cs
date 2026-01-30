@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Configuration;
+using System.Threading;
 
 namespace ProductCheckerBack
 {
@@ -6,6 +7,10 @@ namespace ProductCheckerBack
     {
         static readonly ConfigurationBuilder _configurationBuilder = new ConfigurationBuilder();
         static readonly IConfiguration _configuration;
+        private static readonly AsyncLocal<string?> _currentEnvironment = new AsyncLocal<string?>();
+        private const string EnvironmentStage = "Stage";
+        private const string EnvironmentLive = "Live";
+        private const string DefaultEnvironment = EnvironmentStage;
 
         static Configuration()
         {
@@ -13,9 +18,60 @@ namespace ProductCheckerBack
             _configuration = _configurationBuilder.Build();
         }
 
-        public static string GetConnectionString(string dbContext = "ArtemisDbContext")
+        public static string GetConnectionString(string dbContext = "ProductDbContext")
         {
             return _configuration.GetConnectionString(dbContext);
+        }
+
+        public static void SetCurrentEnvironment(string? environment)
+        {
+            _currentEnvironment.Value = NormalizeEnvironment(environment);
+        }
+
+        public static string GetCurrentEnvironment()
+        {
+            return _currentEnvironment.Value ?? DefaultEnvironment;
+        }
+
+        public static string GetArtemisConnectionString()
+        {
+            return GetCurrentEnvironment() == EnvironmentLive
+                ? GetArtemisLiveConnectionString()
+                : GetArtemisStageConnectionString();
+        }
+
+        public static string GetArtemisConnectionStringName()
+        {
+            return GetCurrentEnvironment() == EnvironmentLive
+                ? "Live"
+                : "Stage";
+        }
+
+        public static string GetLoggingConnectionString()
+        {
+            return GetCurrentEnvironment() == EnvironmentLive
+                ? GetLoggingLiveConnectionString()
+                : GetLoggingStageConnectionString();
+        }
+
+        public static string GetArtemisStageConnectionString()
+        {
+            return _configuration.GetSection("Stage:ArtemisDbContext").Value;
+        }
+
+        public static string GetLoggingStageConnectionString()
+        {
+            return _configuration.GetSection("Stage:LoggingDbContext").Value;
+        }
+
+        public static string GetArtemisLiveConnectionString()
+        {
+            return _configuration.GetSection("Live:ArtemisDbContext").Value;
+        }
+
+        public static string GetLoggingLiveConnectionString()
+        {
+            return _configuration.GetSection("Live:LoggingDbContext").Value;
         }
 
         public static string GetEvidencePath()
@@ -56,6 +112,21 @@ namespace ProductCheckerBack
         public static string GetProductCheckerApiBaseUrl()
         {
             return _configuration.GetSection("PRODUCT_CHECKER:BaseUrl").Value;
+        }
+
+        private static string NormalizeEnvironment(string? environment)
+        {
+            if (string.Equals(environment, EnvironmentLive, StringComparison.OrdinalIgnoreCase))
+            {
+                return EnvironmentLive;
+            }
+
+            if (string.Equals(environment, EnvironmentStage, StringComparison.OrdinalIgnoreCase))
+            {
+                return EnvironmentStage;
+            }
+
+            return DefaultEnvironment;
         }
     }
 }

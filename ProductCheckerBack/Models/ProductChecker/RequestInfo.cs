@@ -21,6 +21,10 @@ namespace ProductCheckerBack.Models.ProductChecker
         [MaxLength(255)]
         public string FileName { get; set; }
 
+        [Column("environment")]
+        [MaxLength(10)]
+        public string Environment { get; set; }
+
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 

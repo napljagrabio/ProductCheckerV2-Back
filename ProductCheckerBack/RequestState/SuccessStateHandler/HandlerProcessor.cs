@@ -31,10 +31,10 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             currentHandler.NextHandler = newHandler;
         }
 
-        public void Process(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
+        public void Process(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
             IHandler handler = InitializeHandlers();
-            handler.Process(productCheckerV2DbContext, productCheckerService, errors, onlyErrors);
+            handler.Process(productCheckerDbContext, productCheckerService, errors, onlyErrors);
         }
     }
 }

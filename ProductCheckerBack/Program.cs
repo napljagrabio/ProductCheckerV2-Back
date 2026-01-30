@@ -15,17 +15,76 @@ namespace ProductCheckerBack
             {
                 try
                 {
-                    using (ProductCheckerV2DbContext db = new ProductCheckerV2DbContext())
+                    using (ProductCheckerDbContext db = new ProductCheckerDbContext())
                     {
                         var activeRequests = db.Requests
                             .Include(r => r.RequestInfo)
                             .ThenInclude(ri => ri.ProductListings)
                             .Where(request => request.Status == RequestStatus.PENDING ||
                                              request.Status == RequestStatus.PROCESSING)
+                            .OrderBy(request => request.CreatedAt)
                             .ToList();
 
-                        foreach (var request in activeRequests)
+                        var pendingPriorityRequests = activeRequests
+                            .Where(req => req.Status == RequestStatus.PENDING && req.Priority == 1)
+                            .OrderBy(req => req.CreatedAt)
+                            .ToList();
+
+                        var processingPriorityRequests = activeRequests
+                            .Where(req => req.Status == RequestStatus.PROCESSING && req.Priority == 1)
+                            .OrderBy(req => req.CreatedAt)
+                            .ToList();
+
+                        if (pendingPriorityRequests.Count > 0)
                         {
+                            const string cancelMessage = "Cancelled request cause of prioritizing high prio requests";
+                            var processingToCancel = activeRequests
+                                .Where(request => request.Status == RequestStatus.PROCESSING && request.Priority != 1)
+                                .ToList();
+
+                            foreach (var request in processingToCancel)
+                            {
+                                var cancelService = new ProductCheckerService(request, db);
+                                cancelService.MarkAsCompletedWithIssues([cancelMessage]);
+                            }
+                        }
+
+                        var nextRequests = new List<Request> ();
+
+                        if (processingPriorityRequests.Count > 0)
+                        {
+                            nextRequests = processingPriorityRequests.Take(1).ToList();
+                        }
+                        else
+                        { 
+                            nextRequests = pendingPriorityRequests.Take(1).ToList();
+                        }
+
+                        if (nextRequests.Count == 0)
+                        {
+                            var processingRequests = activeRequests
+                                .Where(req => req.Status == RequestStatus.PROCESSING)
+                                .OrderBy(req => req.CreatedAt)
+                                .ToList();
+
+                            if (processingRequests.Count > 0)
+                            {
+                                nextRequests = processingRequests.Take(1).ToList();
+                            }
+                            else
+                            {
+                                nextRequests = activeRequests
+                                    .Where(req => req.Status == RequestStatus.PENDING)
+                                    .OrderBy(req => req.CreatedAt)
+                                    .Take(1)
+                                    .ToList();
+                            }
+                        }
+
+                        foreach (var request in nextRequests)
+                        {
+                            Configuration.SetCurrentEnvironment(request.RequestInfo?.Environment);
+                            Console.WriteLine(Configuration.GetArtemisConnectionStringName());
                             ProductCheckerService productCheckerService = null;
                             try
                             {
@@ -95,13 +154,13 @@ namespace ProductCheckerBack
             }
         }
      
-        static IRequestState GetRequestState(ProductCheckerService productCheckerService, ProductCheckerV2DbContext productCheckerV2DbContext, Request request)
+        static IRequestState GetRequestState(ProductCheckerService productCheckerService, ProductCheckerDbContext productCheckerDbContext, Request request)
         {
             return request.Status switch
             {
                 RequestStatus.FAILED => new ErrorState(),
-                RequestStatus.PROCESSING => new ProcessingState(productCheckerV2DbContext),
-                _ => new SuccessState(productCheckerV2DbContext),
+                RequestStatus.PROCESSING => new ProcessingState(productCheckerDbContext),
+                _ => new SuccessState(productCheckerDbContext),
             };
         }
     }

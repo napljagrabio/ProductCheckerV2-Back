@@ -26,7 +26,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             public string Url { get; }
             public string Platform { get; }
             public ProductCheckerScanResponse? Status { get; }
-            public Exception? Error { get; }
+            public string? Error { get; }
             public string? ErrorMessage { get; }
 
             public ScanTaskResult(
@@ -36,7 +36,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                 string url,
                 string platform,
                 ProductCheckerScanResponse? status,
-                Exception? error)
+                string? error)
             {
                 ListingDbId = listingDbId;
                 ListingId = listingId;
@@ -44,16 +44,16 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                 Url = url;
                 Platform = platform;
                 Status = status;
-                Error = error;
+                Error = error?.ToString();
                 ErrorMessage = CheckProductAvailability.TryParseErrorMessage(status?.ErrorDetails);
             }
         }
 
         public IHandler NextHandler { get; set; }
 
-        public void Process(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
+        public void Process(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
-            ProcessAsync(productCheckerV2DbContext, productCheckerService, errors, onlyErrors)
+            ProcessAsync(productCheckerDbContext, productCheckerService, errors, onlyErrors)
                 .GetAwaiter()
                 .GetResult();
         }
@@ -92,7 +92,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             return null;
         }
 
-        private void FinalizeRequest(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors)
+        private void FinalizeRequest(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors)
         {
             if (productCheckerService.GetErrorProductListings().Count == productCheckerService.GetAllProductListings().Count)
             {
@@ -114,7 +114,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
 
             Console.Clear();
 
-            NextHandler?.Process(productCheckerV2DbContext, productCheckerService, errors);
+            NextHandler?.Process(productCheckerDbContext, productCheckerService, errors);
         }
 
         private async Task TryClearStorageAsync(List<string> errors)
@@ -166,24 +166,15 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             }
         }
 
-        private async Task ProcessAsync(ProductCheckerV2DbContext productCheckerV2DbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
+        private async Task ProcessAsync(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
-            var allListings = new List<ProductListings>();
+            var allListings = productCheckerService.GetOrganizedListings(onlyErrors) ?? new List<ProductListings>();
             const string NotSupportedMessage = "Not supported platform in Product Checker";
-
-            if (onlyErrors)
-            {
-                allListings = productCheckerService.GetOrganizedListings(onlyErrors);
-            }
-            else
-            {
-                allListings = productCheckerService.GetOrganizedListings();
-            }
 
             if (allListings.Count == 0)
             {
                 errors.Add("Request has no product listings to process.");
-                FinalizeRequest(productCheckerV2DbContext, productCheckerService, errors);
+                FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
                 return;
             }
 
@@ -202,7 +193,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                     listing.CheckedDate = checkedDate;
                 }
 
-                productCheckerV2DbContext.SaveChanges();
+                productCheckerDbContext.SaveChanges();
             }
 
             var supportedListings = allListings
@@ -213,23 +204,23 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             if (supportedListings.Count == 0)
             {
                 errors.Add("Request listings has no supported platforms.");
-                FinalizeRequest(productCheckerV2DbContext, productCheckerService, errors);
+                FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
                 return;
             }
 
             List<string> activeEndpoints;
             using (var db = new ProductCheckerDbContext())
             {
-               activeEndpoints = db.Ports
-                   .Where(port => port.Status == 0 && !string.IsNullOrWhiteSpace(port.Api))
-                   .Select(port => port.Api!.Trim())
-                   .ToList();
+                activeEndpoints = db.Ports
+                    .Where(port => port.Status == 1 && !string.IsNullOrWhiteSpace(port.Api))
+                    .Select(port => port.Api!.Trim())
+                    .ToList();
             }
 
             if (activeEndpoints.Count == 0)
             {
                 errors.Add("No active Product Checker endpoints available.");
-                FinalizeRequest(productCheckerV2DbContext, productCheckerService, errors);
+                FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
                 return;
             }
 
@@ -242,6 +233,9 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             var completedCount = 0;
             var clearStorageCounter = 0;
             var listingById = supportedListings.ToDictionary(listing => listing.Id);
+            var currentRequest = productCheckerService.Request;
+            var yieldToHighPriority = false;
+            const string HighPriorityCancelMessage = "Cancelled request cause of prioritizing high prio requests";
 
             var saveTask = Task.Run(() =>
             {
@@ -252,9 +246,9 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                         continue;
                     }
 
-                    if (productCheckerV2DbContext.Entry(listing).State == EntityState.Detached)
+                    if (productCheckerDbContext.Entry(listing).State == EntityState.Detached)
                     {
-                        productCheckerV2DbContext.ProductListings.Attach(listing);
+                        productCheckerDbContext.ProductListings.Attach(listing);
                     }
 
                     var checkedDate = result.Status?.DateChecked;
@@ -262,28 +256,40 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                         ? DateTime.UtcNow.AddHours(8).ToString("yyyy-MM-dd HH:mm:ss")
                         : checkedDate;
 
-                    if (result.Error != null || result.Status == null || !string.IsNullOrWhiteSpace(result.Status.ErrorDetails))
+                    if (result.Error != null || result.Status == null || !string.IsNullOrWhiteSpace(result.Status?.ErrorDetails))
                     {
                         listing.UrlStatus = "Error";
                         listing.ErrorDetail = result.Error?.ToString() ?? result.Status?.ErrorDetails ?? "";
                         listing.Note = result.ErrorMessage ?? result.Status?.Notes ?? string.Empty;
-                        lock (errors)
-                        {
-                            errors.Add($"Listing {result.ListingId} failed.");
-                        }
-                        productCheckerV2DbContext.SaveChanges();
+                        productCheckerDbContext.SaveChanges();
                         continue;
                     }
 
                     listing.UrlStatus = result.Status.Availability ? "Available" : "Not Available";
                     listing.ErrorDetail = result.Status.ErrorDetails;
                     listing.Note = result.Status.Notes;
-                    productCheckerV2DbContext.SaveChanges();
+                    productCheckerDbContext.SaveChanges();
                 }
             });
 
             foreach (var listing in supportedListings)
             {
+                if (currentRequest != null && currentRequest.Priority != 1)
+                {
+                    using var priorityDbContext = new ProductCheckerDbContext();
+                    var hasHighPriority = priorityDbContext.Requests
+                        .AsNoTracking()
+                        .Any(req =>
+                            (req.Status == RequestStatus.PENDING || req.Status == RequestStatus.PROCESSING) &&
+                            req.Priority == 1 &&
+                            req.Id != currentRequest.Id);
+
+                    if (hasHighPriority)
+                    {
+                        yieldToHighPriority = true;
+                        break;
+                    }
+                }
                 await endpointSignal.WaitAsync().ConfigureAwait(false);
                 if (!endpointQueue.TryDequeue(out var endpoint))
                 {
@@ -318,7 +324,7 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
                     }
                     catch (Exception ex)
                     {
-                        results.Add(new ScanTaskResult(listingDbId, listingId, caseNumber, url, platform, null, ex));
+                        results.Add(new ScanTaskResult(listingDbId, listingId, caseNumber, url, platform, null, ex.ToString()));
                     }
                     finally
                     {
@@ -339,8 +345,19 @@ namespace ProductCheckerBack.RequestState.SuccessStateHandler
             await Task.WhenAll(tasks).ConfigureAwait(false);
             results.CompleteAdding();
             await saveTask.ConfigureAwait(false);
-            
-            FinalizeRequest(productCheckerV2DbContext, productCheckerService, errors);
+
+            if (yieldToHighPriority)
+            {
+                productCheckerService.MarkAsPending(true);
+                if (currentRequest != null)
+                {
+                    currentRequest.UpdatedAt = DateTime.UtcNow.AddHours(8);
+                    productCheckerDbContext.SaveChanges();
+                }
+                return;
+            }
+
+            FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
         }
     }
 }

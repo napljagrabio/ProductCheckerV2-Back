@@ -10,7 +10,7 @@ namespace ProductCheckerBack
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseMySQL(Configuration.GetConnectionString("LoggingDbContext"));
+            optionsBuilder.UseMySQL(Configuration.GetLoggingConnectionString());
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

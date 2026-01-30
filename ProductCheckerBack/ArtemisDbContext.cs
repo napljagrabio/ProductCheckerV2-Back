@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProductCheckerBack.Models;
 
@@ -11,7 +11,7 @@ namespace ProductCheckerBack
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseMySQL(Configuration.GetConnectionString(),
+            optionsBuilder.UseMySQL(Configuration.GetArtemisConnectionString(),
                 options => options.EnableRetryOnFailure(5, TimeSpan.FromMinutes(2), null));
         }
 

@@ -5,11 +5,11 @@ namespace ProductCheckerBack.RequestState
 {
     internal class SuccessState : IRequestState
     {
-        private readonly ProductCheckerV2DbContext _productCheckerV2DbContext;
+        private readonly ProductCheckerDbContext _productCheckerDbContext;
 
-        public SuccessState(ProductCheckerV2DbContext productCheckerV2DbContext)
+        public SuccessState(ProductCheckerDbContext productCheckerDbContext)
         {
-            _productCheckerV2DbContext = productCheckerV2DbContext;
+            _productCheckerDbContext = productCheckerDbContext;
         }
 
         public void Process(ProductCheckerService productCheckerService)
@@ -20,7 +20,7 @@ namespace ProductCheckerBack.RequestState
             {
                 typeof(CheckProductAvailability)
             };
-            successHandlers.Process(_productCheckerV2DbContext, productCheckerService, new List<string>());
+            successHandlers.Process(_productCheckerDbContext, productCheckerService, new List<string>());
         }
     }
 }
