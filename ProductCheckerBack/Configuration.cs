@@ -33,13 +33,6 @@ namespace ProductCheckerBack
             return _currentEnvironment.Value ?? DefaultEnvironment;
         }
 
-        public static string GetArtemisConnectionString()
-        {
-            return GetCurrentEnvironment() == EnvironmentLive
-                ? GetArtemisLiveConnectionString()
-                : GetArtemisStageConnectionString();
-        }
-
         public static string GetArtemisConnectionStringName()
         {
             return GetCurrentEnvironment() == EnvironmentLive
@@ -47,11 +40,32 @@ namespace ProductCheckerBack
                 : "Stage";
         }
 
+        public static string GetBaseUrlConnectionString()
+        {
+            return GetCurrentEnvironment() == EnvironmentLive
+                ? GetBaseUrlLiveConnectionString()
+                : GetBaseUrlStageConnectionString();
+        }
+
+        public static string GetArtemisConnectionString()
+        {
+            return GetCurrentEnvironment() == EnvironmentLive
+                ? GetArtemisLiveConnectionString()
+                : GetArtemisStageConnectionString();
+        }
+
         public static string GetLoggingConnectionString()
         {
             return GetCurrentEnvironment() == EnvironmentLive
                 ? GetLoggingLiveConnectionString()
                 : GetLoggingStageConnectionString();
+        }
+
+        //================== STAGE ENV ==================//
+
+        public static string GetBaseUrlStageConnectionString()
+        {
+            return _configuration.GetSection("Stage:BaseUrl").Value;
         }
 
         public static string GetArtemisStageConnectionString()
@@ -64,6 +78,13 @@ namespace ProductCheckerBack
             return _configuration.GetSection("Stage:LoggingDbContext").Value;
         }
 
+        //================== LIVE ENV ==================//
+
+        public static string GetBaseUrlLiveConnectionString()
+        {
+            return _configuration.GetSection("Live:BaseUrl").Value;
+        }
+
         public static string GetArtemisLiveConnectionString()
         {
             return _configuration.GetSection("Live:ArtemisDbContext").Value;
@@ -73,6 +94,8 @@ namespace ProductCheckerBack
         {
             return _configuration.GetSection("Live:LoggingDbContext").Value;
         }
+
+        //======================== General Settings ========================//
 
         public static string GetEvidencePath()
         {
@@ -107,11 +130,6 @@ namespace ProductCheckerBack
         public static string GetArtemisLoginPassword()
         {
             return _configuration.GetSection("ARTEMIS:Credentials:Password").Value;
-        }
-
-        public static string GetProductCheckerApiBaseUrl()
-        {
-            return _configuration.GetSection("PRODUCT_CHECKER:BaseUrl").Value;
         }
 
         private static string NormalizeEnvironment(string? environment)

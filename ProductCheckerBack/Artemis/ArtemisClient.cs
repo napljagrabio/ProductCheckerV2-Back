@@ -21,7 +21,7 @@ namespace ProductCheckerBack.Artemis
         {
             _httpClient = new HttpClient
             {
-                BaseAddress = new Uri(Configuration.GetArtemisApiBaseUrl())
+                BaseAddress = new Uri(Configuration.GetBaseUrlConnectionString())
             };
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                 "Bearer",
