@@ -1,4 +1,4 @@
-namespace ProductCheckerBack.RequestState.SuccessStateHandler
+namespace ProductCheckerBack.RequestState.DefaultStateHandler
 {
     internal class HandlerProcessor : List<Type>
     {

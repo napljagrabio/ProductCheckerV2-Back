@@ -1,5 +1,5 @@
 using ProductCheckerBack.ProductCheckerState;
-using ProductCheckerBack.RequestState.SuccessStateHandler;
+using ProductCheckerBack.RequestState.DefaultStateHandler;
 
 namespace ProductCheckerBack.RequestState
 {
