@@ -102,14 +102,6 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             }
 
             var activeEndpoints = EndpointProvider.GetActiveEndpoints();
-
-            if (activeEndpoints.Count == 0)
-            {
-                errors.Add("No active Product Checker endpoints available.");
-                FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
-                return;
-            }
-
             var results = new BlockingCollection<ScanTaskResult>();
             var endpointQueue = new ConcurrentQueue<string>(activeEndpoints);
             var endpointSignal = new SemaphoreSlim(activeEndpoints.Count, activeEndpoints.Count);

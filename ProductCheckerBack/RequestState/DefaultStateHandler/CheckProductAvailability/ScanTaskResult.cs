@@ -4,8 +4,8 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
 {
     internal sealed class ScanTaskResult
     {
-        public int ListingDbId { get; }
-        public string ListingId { get; }
+        public long ListingDbId { get; }
+        public long ListingId { get; }
         public string? CaseNumber { get; }
         public string Url { get; }
         public string Platform { get; }
@@ -14,8 +14,8 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
         public string? ErrorMessage { get; }
 
         public ScanTaskResult(
-            int listingDbId,
-            string listingId,
+            long listingDbId,
+            long listingId,
             string? caseNumber,
             string url,
             string platform,

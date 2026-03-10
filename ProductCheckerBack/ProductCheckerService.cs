@@ -33,7 +33,7 @@ namespace ProductCheckerBack
         {
             if (forcedPendingCauseOfPriority) 
             {
-                Request.RescanInfoId = 1;
+                Request.RescanId = 1;
             }
             Request.Status = RequestStatus.PENDING;
             Request.RequestEnded = null;
@@ -101,7 +101,7 @@ namespace ProductCheckerBack
             EnsureRequestListingsLoaded();
 
             var listings = new List<ProductListings>();
-            if (onlyErrors || Request.RescanInfoId == 1)
+            if (onlyErrors || Request.RescanId == 1)
             {
                 listings = GetErrorProductListings();
             }

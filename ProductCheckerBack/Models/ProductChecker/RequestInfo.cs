@@ -5,13 +5,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ProductCheckerBack.Models.ProductChecker
 {
-    [Table("request_infos")]
+    [Table("product_checker_request_infos")]
     public class RequestInfo
     {
         [Key]
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         [Column("id")]
-        public int Id { get; set; }
+        public long Id { get; set; }
 
         [Column("user")]
         [MaxLength(255)]
@@ -22,7 +22,7 @@ namespace ProductCheckerBack.Models.ProductChecker
         public string FileName { get; set; }
 
         [Column("environment")]
-        [MaxLength(10)]
+        [MaxLength(255)]
         public string Environment { get; set; }
 
         [Column("created_at")]

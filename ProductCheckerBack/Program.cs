@@ -4,6 +4,7 @@ using ProductCheckerBack.Models.ProductChecker;
 using ProductCheckerBack.RequestState;
 using ProductCheckerBack.ProductCheckerState;
 using ProductCheckerBack.ProductChecker.Api;
+using ProductCheckerBack.RequestState.DefaultStateHandler;
 
 namespace ProductCheckerBack
 {
@@ -81,63 +82,74 @@ namespace ProductCheckerBack
                             }
                         }
 
-                        foreach (var request in nextRequests)
-                        {
-                            Configuration.SetCurrentEnvironment(request.RequestInfo?.Environment);
-                            Console.WriteLine(Configuration.GetArtemisConnectionStringName());
-                            ProductCheckerService productCheckerService = null;
-                            try
-                            {
-                                productCheckerService = new ProductCheckerService(request, db);
-                                if (productCheckerService.GetAllProductListings().Count == 0)
-                                {
-                                    productCheckerService.MarkAsCompletedWithIssues(["Request Failed: No Listings Found"]);
-                                    continue;
-                                }
+                        var activeEndpoints = EndpointProvider.GetActiveEndpoints();
 
+                        if (activeEndpoints.Count > 0)
+                        {
+                            foreach (var request in nextRequests)
+                            {
+                                Configuration.SetCurrentEnvironment(request.RequestInfo?.Environment);
+                                Console.WriteLine($"Using {Configuration.GetArtemisConnectionStringName()} Database for Request ID: {request.RequestInfo?.Id}");
+                                ProductCheckerService productCheckerService = null;
                                 try
                                 {
-                                    List<string> restarterUrls = [];
-                                    using (var db1 = new ProductCheckerDbContext())
+                                    productCheckerService = new ProductCheckerService(request, db);
+                                    if (productCheckerService.GetAllProductListings().Count == 0)
                                     {
-                                        restarterUrls = db1.ApiEndpoints
-                                            .Where(s => s.Key == "server_restarter_url")
-                                            .Select(s => s.Value)
-                                            .Where(value => !string.IsNullOrWhiteSpace(value))
-                                            .Select(value => value!.Trim())
-                                            .ToList();
+                                        productCheckerService.MarkAsCompletedWithIssues(["Request Failed: No Listings Found"]);
+                                        continue;
                                     }
 
-                                    if (restarterUrls.Count > 0)
+                                    try
                                     {
-                                        using var restarterHttpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
-                                        var restarterApi = new ServerRestarterApi(restarterHttpClient);
-                                        var restartTasks = restarterUrls
-                                            .Select(url => restarterApi.Restart(url))
-                                            .ToArray();
-                                        await Task.WhenAll(restartTasks).ConfigureAwait(false);
+                                        List<string> restarterUrls = [];
+                                        using (var db1 = new ProductCheckerDbContext())
+                                        {
+                                            restarterUrls = db1.ApiEndpoints
+                                                .Where(s => s.Key == "server_restarter_url")
+                                                .Select(s => s.Value)
+                                                .Where(value => !string.IsNullOrWhiteSpace(value))
+                                                .Select(value => value!.Trim())
+                                                .ToList();
+                                        }
+
+                                        if (restarterUrls.Count > 0)
+                                        {
+                                            using var restarterHttpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+                                            var restarterApi = new ServerRestarterApi(restarterHttpClient);
+                                            var restartTasks = restarterUrls
+                                                .Select(url => restarterApi.Restart(url))
+                                                .ToArray();
+                                            await Task.WhenAll(restartTasks).ConfigureAwait(false);
+                                        }
                                     }
+                                    catch (Exception ex)
+                                    {
+                                    }
+                                    GetRequestState(productCheckerService, db, request).Process(productCheckerService);
                                 }
                                 catch (Exception ex)
                                 {
+                                    Logger.Log(
+                                        new ErrorLogging.Payload()
+                                        {
+                                            ProductCheckerRequestId = request.Id
+                                        },
+                                        String.Concat(ex.Message, "\n\n\n---- Inner Exception Message ----\n", ex.InnerException?.Message),
+                                        String.Concat(ex.StackTrace, "\n\n\n---- Inner Exception Stack Trace ----\n", ex.InnerException?.StackTrace)
+                                    );
                                 }
-                                GetRequestState(productCheckerService, db, request).Process(productCheckerService);
                             }
-                            catch (Exception ex)
-                            {
-                                Logger.Log(
-                                    new ErrorLogging.Payload()
-                                    {
-                                        ProductCheckerRequestId = request.Id
-                                    },
-                                    String.Concat(ex.Message, "\n\n\n---- Inner Exception Message ----\n", ex.InnerException?.Message),
-                                    String.Concat(ex.StackTrace, "\n\n\n---- Inner Exception Stack Trace ----\n", ex.InnerException?.StackTrace)
-                                );
-                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine("Server Sleeping... No active workers available.");
+                            Thread.Sleep(Configuration.GetRefresh());
                         }
 
                         if (activeRequests.Count == 0)
                         {
+                            Console.WriteLine("Server Sleeping... No requests found.");
                             Thread.Sleep(Configuration.GetRefresh());
                         }
                     }
@@ -149,6 +161,7 @@ namespace ProductCheckerBack
                         String.Concat(ex.Message, "\n\n\n---- Inner Exception Message ----\n", ex.InnerException?.Message),
                         String.Concat(ex.StackTrace, "\n\n\n---- Inner Exception Stack Trace ----\n", ex.InnerException?.StackTrace)
                     );
+                    Console.WriteLine($"Server Sleeping... Error: {ex.InnerException?.Message}");
                     Thread.Sleep(Configuration.GetRefresh());
                 }
             }

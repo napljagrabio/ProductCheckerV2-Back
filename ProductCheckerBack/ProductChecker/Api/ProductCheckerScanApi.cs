@@ -26,13 +26,13 @@ namespace ProductCheckerBack.ProductChecker.Api
             _httpClient = httpClient;
         }
 
-        public async Task<ProductCheckerScanResponse> Scan(object payload, string listing, string progress, string endpoint)
+        public async Task<ProductCheckerScanResponse> Scan(object payload, long listingId, string progress, string endpoint)
         {
             try
             {
                 var response = await _httpClient.PostAsJsonAsync("scan/product-checker", payload);
                 var raw = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"[Done {progress}] Listing Id: {listing} | Raw Result: {raw ?? ""} via {endpoint}");
+                Console.WriteLine($"[Done {progress}] Listing Id: {listingId} | Raw Result: {raw ?? ""} via {endpoint}");
                 var envelope = JsonSerializer.Deserialize<ScanEnvelope>(raw, new JsonSerializerOptions()
                 {
                     PropertyNameCaseInsensitive = true

@@ -4,16 +4,16 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ProductCheckerBack.Models.ProductChecker
 {
-    [Table("requests")]
+    [Table("product_checker_requests")]
     public class Request
     {
         [Key]
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         [Column("id")]
-        public int Id { get; set; }
+        public long Id { get; set; }
 
         [Column("request_info_id")]
-        public int RequestInfoId { get; set; }
+        public long RequestInfoId { get; set; }
 
         [Column("status")]
         public RequestStatus Status { get; set; } = RequestStatus.PENDING;
@@ -27,8 +27,8 @@ namespace ProductCheckerBack.Models.ProductChecker
         [Column("errors")]
         public IList<string>? Errors { get; set; }
 
-        [Column("rescan_info_id")]
-        public int? RescanInfoId { get; set; } 
+        [Column("rescan_id")]
+        public int? RescanId { get; set; } 
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.Now;

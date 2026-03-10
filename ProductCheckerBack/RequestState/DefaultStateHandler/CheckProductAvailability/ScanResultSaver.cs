@@ -11,9 +11,9 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
     internal sealed class ScanResultSaver
     {
         private readonly ProductCheckerDbContext _dbContext;
-        private readonly Dictionary<int, ProductListings> _listingById;
+        private readonly Dictionary<long, ProductListings> _listingById;
 
-        public ScanResultSaver(ProductCheckerDbContext dbContext, Dictionary<int, ProductListings> listingById)
+        public ScanResultSaver(ProductCheckerDbContext dbContext, Dictionary<long, ProductListings> listingById)
         {
             _dbContext = dbContext;
             _listingById = listingById;
