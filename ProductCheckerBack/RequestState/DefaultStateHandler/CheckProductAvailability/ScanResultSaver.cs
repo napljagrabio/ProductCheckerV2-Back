@@ -44,10 +44,7 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
                     {
                         listing.UrlStatus = "Error";
                         listing.ErrorDetail = result.Error?.ToString() ?? result.Status?.ErrorDetails ?? "";
-                        listing.Note = result.ErrorMessage
-                            ?? result.Status?.Notes
-                            ?? TryGetErrorNote(result.Error)
-                            ?? "Server Request Error";
+                        listing.Note = GetUserFriendlyErrorNote(result);
                         _dbContext.SaveChanges();
                         continue;
                     }
@@ -60,16 +57,24 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             });
         }
 
-        private static string? TryGetErrorNote(string? error)
+        private static string GetUserFriendlyErrorNote(ScanTaskResult result)
         {
-            if (string.IsNullOrWhiteSpace(error))
+            if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
             {
-                return null;
+                return result.ErrorMessage;
             }
 
-            var firstLine = error.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
-                .FirstOrDefault();
-            return string.IsNullOrWhiteSpace(firstLine) ? null : firstLine.Trim();
+            if (!string.IsNullOrWhiteSpace(result.Status?.Notes))
+            {
+                return result.Status.Notes;
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.Error))
+            {
+                return "Unable to check this listing at the moment.";
+            }
+
+            return "Unable to check this listing at the moment.";
         }
     }
 }

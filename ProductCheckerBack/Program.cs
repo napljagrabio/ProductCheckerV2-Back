@@ -121,6 +121,7 @@ namespace ProductCheckerBack
                                                 .Select(url => restarterApi.Restart(url))
                                                 .ToArray();
                                             await Task.WhenAll(restartTasks).ConfigureAwait(false);
+                                            await Task.Delay(10000);
                                         }
                                     }
                                     catch (Exception ex)
