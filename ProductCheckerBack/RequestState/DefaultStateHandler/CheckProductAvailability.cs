@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ProductCheckerBack.Models.ProductChecker;
+using ProductCheckerBack.ProductChecker.Api;
 
 namespace ProductCheckerBack.RequestState.DefaultStateHandler
 {
@@ -75,13 +76,42 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
                     req.Id != currentRequest.Id);
         }
 
-        private async Task ClearStorageAndPauseAsync(List<string> errors, int clearStorageThreshold)
+        private async Task ClearStorageAndRestartAsync(List<string> errors, int clearStorageThreshold)
         {
             Console.WriteLine($"[Storage] Reached threshold of {clearStorageThreshold} listings. Clearing storage.");
             await _storageClearer.TryClearStorageAsync(errors).ConfigureAwait(false);
 
             Console.WriteLine("[Storage] Pausing product checks for 10 seconds.");
             await Task.Delay(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+            try
+            {
+                List<string> restarterUrls = [];
+                using (var db1 = new ProductCheckerDbContext())
+                {
+                    restarterUrls = db1.ApiEndpoints
+                        .Where(s => s.Key == "server_restarter_url")
+                        .Select(s => s.Value)
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .Select(value => value!.Trim())
+                        .ToList();
+                }
+
+                if (restarterUrls.Count > 0)
+                {
+                    using var restarterHttpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+                    var restarterApi = new ServerRestarterApi(restarterHttpClient);
+                    var restartTasks = restarterUrls
+                        .Select(url => restarterApi.Restart(url))
+                        .ToArray();
+                    Console.WriteLine("[System] Restarting all servers, Please wait 15 seconds.");
+                    await Task.WhenAll(restartTasks).ConfigureAwait(false);
+                    await Task.Delay(10000);
+                }
+            }
+            catch (Exception ex)
+            {
+            }
         }
 
         private async Task ProcessAsync(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
@@ -223,7 +253,7 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
                     listingsStartedInBatch == clearStorageThreshold &&
                     hasMoreListings)
                 {
-                    await ClearStorageAndPauseAsync(errors, clearStorageThreshold).ConfigureAwait(false);
+                    await ClearStorageAndRestartAsync(errors, clearStorageThreshold).ConfigureAwait(false);
                 }
             }
 
