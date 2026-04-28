@@ -59,6 +59,31 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             NextHandler?.Process(productCheckerDbContext, productCheckerService, errors);
         }
 
+        private static bool HasHigherPriorityRequest(Request? currentRequest)
+        {
+            if (currentRequest == null || currentRequest.Priority == 1)
+            {
+                return false;
+            }
+
+            using var priorityDbContext = new ProductCheckerDbContext();
+            return priorityDbContext.Requests
+                .AsNoTracking()
+                .Any(req =>
+                    (req.Status == RequestStatus.PENDING || req.Status == RequestStatus.PROCESSING) &&
+                    req.Priority == 1 &&
+                    req.Id != currentRequest.Id);
+        }
+
+        private async Task ClearStorageAndPauseAsync(List<string> errors, int clearStorageThreshold)
+        {
+            Console.WriteLine($"[Storage] Reached threshold of {clearStorageThreshold} listings. Clearing storage.");
+            await _storageClearer.TryClearStorageAsync(errors).ConfigureAwait(false);
+
+            Console.WriteLine("[Storage] Pausing product checks for 10 seconds.");
+            await Task.Delay(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        }
+
         private async Task ProcessAsync(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
             var allListings = productCheckerService.GetOrganizedListings(onlyErrors) ?? new List<ProductListings>();
@@ -92,7 +117,6 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             var supportedListings = allListings
                 .Where(listing => !IsNotSupportedListing(listing))
                 .ToList();
-            var totalListingCount = allListings.Count;
 
             if (supportedListings.Count == 0)
             {
@@ -112,89 +136,97 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             var results = new BlockingCollection<ScanTaskResult>();
             var endpointQueue = new ConcurrentQueue<string>(activeEndpoints);
             var endpointSignal = new SemaphoreSlim(activeEndpoints.Count, activeEndpoints.Count);
-            var tasks = new List<Task>(allListings.Count);
             var totalCount = supportedListings.Count;
             var startedCount = 0;
-            var completedCount = 0;
-            var clearStorageCounter = 0;
             var listingById = supportedListings.ToDictionary(listing => listing.Id);
             var currentRequest = productCheckerService.Request;
             var yieldToHighPriority = false;
-            const string HighPriorityCancelMessage = "Cancelled request cause of prioritizing high prio requests";
+            var stopProcessing = false;
+            var nextListingIndex = 0;
+            var clearStorageThreshold = Configuration.GetClearStorageThreshold();
+            var shouldClearStorageBetweenBatches = clearStorageThreshold > 0;
 
             var resultSaver = new ScanResultSaver(productCheckerDbContext, listingById);
             var saveTask = resultSaver.RunAsync(results);
 
-            foreach (var listing in supportedListings)
+            while (nextListingIndex < supportedListings.Count && !stopProcessing)
             {
-                if (currentRequest != null && currentRequest.Priority != 1)
-                {
-                    using var priorityDbContext = new ProductCheckerDbContext();
-                    var hasHighPriority = priorityDbContext.Requests
-                        .AsNoTracking()
-                        .Any(req =>
-                            (req.Status == RequestStatus.PENDING || req.Status == RequestStatus.PROCESSING) &&
-                            req.Priority == 1 &&
-                            req.Id != currentRequest.Id);
+                var batchSize = shouldClearStorageBetweenBatches
+                    ? Math.Min(clearStorageThreshold, supportedListings.Count - nextListingIndex)
+                    : supportedListings.Count - nextListingIndex;
+                var batchTasks = new List<Task>(batchSize);
+                var listingsStartedInBatch = 0;
 
-                    if (hasHighPriority)
+                while (listingsStartedInBatch < batchSize && nextListingIndex < supportedListings.Count)
+                {
+                    if (HasHigherPriorityRequest(currentRequest))
                     {
                         yieldToHighPriority = true;
+                        stopProcessing = true;
                         break;
                     }
-                }
-                await endpointSignal.WaitAsync().ConfigureAwait(false);
-                if (!endpointQueue.TryDequeue(out var endpoint))
-                {
-                    endpointSignal.Release();
-                    errors.Add("No endpoint available for processing.");
-                    break;
-                }
 
-                var listingDbId = listing.Id;
-                var listingId = listing.ListingId;
-                var caseNumber = listing.CaseNumber;
-                var url = listing.Url;
-                var platform = listing.Platform;
-
-                tasks.Add(Task.Run(async () =>
-                {
-                    var started = Interlocked.Increment(ref startedCount);
-                    Console.WriteLine($"[Scan] Start {started}/{totalCount} listing {listingId} via {endpoint}");
-                    try
+                    await endpointSignal.WaitAsync().ConfigureAwait(false);
+                    if (!endpointQueue.TryDequeue(out var endpoint))
                     {
-                        var client = ProductCheckerClient.ForApi(endpoint);
-                        var payload = new
-                        {
-                            listing_id = listingId,
-                            case_number = caseNumber,
-                            url = url,
-                            availability = false
-                        };
-
-                        var response = await client.ProductCheckerScanApi.Scan(payload, listingId, $"{started}/{totalCount}", endpoint).ConfigureAwait(false);
-                        results.Add(new ScanTaskResult(listingDbId, listingId, caseNumber, url, platform, response, null));
-                    }
-                    catch (Exception ex)
-                    {
-                        results.Add(new ScanTaskResult(listingDbId, listingId, caseNumber, url, platform, null, ex.ToString()));
-                    }
-                    finally
-                    {
-                        var done = Interlocked.Increment(ref completedCount);
-                        var clearCount = Interlocked.Increment(ref clearStorageCounter);
-                        if (clearCount >= Configuration.GetClearStorageThreshold() &&
-                            Interlocked.Exchange(ref clearStorageCounter, 0) >= Configuration.GetClearStorageThreshold())
-                        {
-                            await _storageClearer.TryClearStorageAsync(errors).ConfigureAwait(false);
-                        }
-                        endpointQueue.Enqueue(endpoint);
                         endpointSignal.Release();
+                        errors.Add("No endpoint available for processing.");
+                        stopProcessing = true;
+                        break;
                     }
-                }));
+
+                    var listing = supportedListings[nextListingIndex];
+                    nextListingIndex++;
+                    listingsStartedInBatch++;
+
+                    var listingDbId = listing.Id;
+                    var listingId = listing.ListingId;
+                    var caseNumber = listing.CaseNumber;
+                    var url = listing.Url;
+                    var platform = listing.Platform;
+
+                    batchTasks.Add(Task.Run(async () =>
+                    {
+                        var started = Interlocked.Increment(ref startedCount);
+                        Console.WriteLine($"[Scan] Start {started}/{totalCount} listing {listingId} via {endpoint}");
+                        try
+                        {
+                            var client = ProductCheckerClient.ForApi(endpoint);
+                            var payload = new
+                            {
+                                listing_id = listingId,
+                                case_number = caseNumber,
+                                url = url,
+                                availability = false
+                            };
+
+                            var response = await client.ProductCheckerScanApi.Scan(payload, listingId, $"{started}/{totalCount}", endpoint).ConfigureAwait(false);
+                            results.Add(new ScanTaskResult(listingDbId, listingId, caseNumber, url, platform, response, null));
+                        }
+                        catch (Exception ex)
+                        {
+                            results.Add(new ScanTaskResult(listingDbId, listingId, caseNumber, url, platform, null, ex.ToString()));
+                        }
+                        finally
+                        {
+                            endpointQueue.Enqueue(endpoint);
+                            endpointSignal.Release();
+                        }
+                    }));
+                }
+
+                await Task.WhenAll(batchTasks).ConfigureAwait(false);
+
+                var hasMoreListings = nextListingIndex < supportedListings.Count;
+                if (!stopProcessing &&
+                    shouldClearStorageBetweenBatches &&
+                    listingsStartedInBatch == clearStorageThreshold &&
+                    hasMoreListings)
+                {
+                    await ClearStorageAndPauseAsync(errors, clearStorageThreshold).ConfigureAwait(false);
+                }
             }
 
-            await Task.WhenAll(tasks).ConfigureAwait(false);
             results.CompleteAdding();
             await saveTask.ConfigureAwait(false);
 
