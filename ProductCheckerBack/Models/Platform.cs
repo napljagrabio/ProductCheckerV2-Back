@@ -1,9 +1,9 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace ProductCheckerBack.Models.ProductChecker
+namespace ProductCheckerBack.Models
 {
-    [Table("product_checker_platforms")]
+    [Table("platforms")]
     public class Platform
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
@@ -12,10 +12,10 @@ namespace ProductCheckerBack.Models.ProductChecker
         [Column("name")]
         public string? Name { get; set; }
 
-        [Column("domain")]
+        [Column("url")]
         public string? Domain { get; set; }
 
-        [Column("availability")]
+        [Column("for_product_checker")]
         public int Availability { get; set; }
 
         [Column("created_at")]

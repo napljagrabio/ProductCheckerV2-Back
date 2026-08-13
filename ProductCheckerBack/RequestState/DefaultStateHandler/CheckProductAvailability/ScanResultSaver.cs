@@ -4,16 +4,16 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using ProductCheckerBack.Models.ProductChecker;
+using ProductCheckerBack.Models;
 
-namespace ProductCheckerBack.RequestState.DefaultStateHandler
+namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
 {
     internal sealed class ScanResultSaver
     {
-        private readonly ProductCheckerDbContext _dbContext;
-        private readonly Dictionary<long, ProductListings> _listingById;
+        private readonly ArtemisDbContext _dbContext;
+        private readonly Dictionary<long, ExecutionListing> _listingById;
 
-        public ScanResultSaver(ProductCheckerDbContext dbContext, Dictionary<long, ProductListings> listingById)
+        public ScanResultSaver(ArtemisDbContext dbContext, Dictionary<long, ExecutionListing> listingById)
         {
             _dbContext = dbContext;
             _listingById = listingById;
@@ -32,7 +32,7 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
 
                     if (_dbContext.Entry(listing).State == EntityState.Detached)
                     {
-                        _dbContext.ProductListings.Attach(listing);
+                        _dbContext.ExecutionListings.Attach(listing);
                     }
 
                     var checkedDate = result.Status?.DateChecked;

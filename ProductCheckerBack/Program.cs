@@ -1,10 +1,10 @@
 ﻿using ProductCheckerBack.Models;
 using Microsoft.EntityFrameworkCore;
-using ProductCheckerBack.Models.ProductChecker;
-using ProductCheckerBack.RequestState;
+using ProductCheckerBack.ExecutionState;
 using ProductCheckerBack.ProductCheckerState;
 using ProductCheckerBack.ProductChecker.Api;
-using ProductCheckerBack.RequestState.DefaultStateHandler;
+using ProductCheckerBack.ExecutionState.DefaultStateHandler;
+using ProductCheckerBack.Artemis;
 
 namespace ProductCheckerBack
 {
@@ -16,94 +16,56 @@ namespace ProductCheckerBack
             {
                 try
                 {
-                    using (ProductCheckerDbContext db = new ProductCheckerDbContext())
+                    using (ArtemisDbContext db = new ArtemisDbContext())
                     {
-                        var activeRequests = db.Requests
-                            .Include(r => r.RequestInfo)
-                            .ThenInclude(ri => ri.ProductListings)
-                            .Where(request => request.Status == RequestStatus.PENDING ||
-                                             request.Status == RequestStatus.PROCESSING)
-                            .OrderBy(request => request.CreatedAt)
+                        var activeExecutions = db.Executions
+                            .Include(r => r.ExecutionListings)
+                            .ThenInclude(result => result.Listing)
+                            .ThenInclude(listing => listing.Platform)
+                            .Where(execution => execution.Status == ExecutionStatus.PENDING ||
+                                             execution.Status == ExecutionStatus.PROCESSING)
+                            .OrderBy(execution => execution.CreatedAt)
                             .ToList();
 
-                        var pendingPriorityRequests = activeRequests
-                            .Where(req => req.Status == RequestStatus.PENDING && req.Priority == 1)
+                        var nextExecutions = new List<Execution>();
+                        var processingExecutions = activeExecutions
+                            .Where(req => req.Status == ExecutionStatus.PROCESSING)
                             .OrderBy(req => req.CreatedAt)
                             .ToList();
 
-                        var processingPriorityRequests = activeRequests
-                            .Where(req => req.Status == RequestStatus.PROCESSING && req.Priority == 1)
-                            .OrderBy(req => req.CreatedAt)
-                            .ToList();
-
-                        if (pendingPriorityRequests.Count > 0)
+                        if (processingExecutions.Count > 0)
                         {
-                            const string cancelMessage = "Cancelled request cause of prioritizing high prio requests";
-                            var processingToCancel = activeRequests
-                                .Where(request => request.Status == RequestStatus.PROCESSING && request.Priority != 1)
-                                .ToList();
-
-                            foreach (var request in processingToCancel)
-                            {
-                                var cancelService = new ProductCheckerService(request, db);
-                                cancelService.MarkAsCompletedWithIssues([cancelMessage]);
-                            }
-                        }
-
-                        var nextRequests = new List<Request> ();
-
-                        if (processingPriorityRequests.Count > 0)
-                        {
-                            nextRequests = processingPriorityRequests.Take(1).ToList();
+                            nextExecutions = processingExecutions.Take(1).ToList();
                         }
                         else
-                        { 
-                            nextRequests = pendingPriorityRequests.Take(1).ToList();
-                        }
-
-                        if (nextRequests.Count == 0)
                         {
-                            var processingRequests = activeRequests
-                                .Where(req => req.Status == RequestStatus.PROCESSING)
+                            nextExecutions = activeExecutions
+                                .Where(req => req.Status == ExecutionStatus.PENDING)
                                 .OrderBy(req => req.CreatedAt)
+                                .Take(1)
                                 .ToList();
-
-                            if (processingRequests.Count > 0)
-                            {
-                                nextRequests = processingRequests.Take(1).ToList();
-                            }
-                            else
-                            {
-                                nextRequests = activeRequests
-                                    .Where(req => req.Status == RequestStatus.PENDING)
-                                    .OrderBy(req => req.CreatedAt)
-                                    .Take(1)
-                                    .ToList();
-                            }
                         }
 
                         var activeEndpoints = EndpointProvider.GetActiveEndpoints();
 
                         if (activeEndpoints.Count > 0)
                         {
-                            foreach (var request in nextRequests)
+                            foreach (var execution in nextExecutions)
                             {
-                                Configuration.SetCurrentEnvironment(request.RequestInfo?.Environment);
-                                Console.WriteLine($"Using {Configuration.GetArtemisConnectionStringName()} Database for Request ID: {request.RequestInfo?.Id}");
                                 ProductCheckerService productCheckerService = null;
                                 try
                                 {
-                                    productCheckerService = new ProductCheckerService(request, db);
-                                    if (productCheckerService.GetAllProductListings().Count == 0)
+                                    productCheckerService = new ProductCheckerService(execution, db);
+                                    if (productCheckerService.GetAllExecutionListings().Count == 0)
                                     {
-                                        productCheckerService.MarkAsCompletedWithIssues(["Request Failed: No Listings Found"]);
+                                        productCheckerService.MarkAsCompletedWithIssues(["Execution Failed: No Listings Found"]);
                                         continue;
                                     }
 
                                     try
                                     {
                                         List<string> restarterUrls = [];
-                                        using (var db1 = new ProductCheckerDbContext())
+                                        using (var db1 = new ArtemisDbContext())
                                         {
                                             restarterUrls = db1.ApiEndpoints
                                                 .Where(s => s.Key == "server_restarter_url")
@@ -127,14 +89,14 @@ namespace ProductCheckerBack
                                     catch (Exception ex)
                                     {
                                     }
-                                    GetRequestState(productCheckerService, db, request).Process(productCheckerService);
+                                    GetExecutionState(productCheckerService, db, execution).Process(productCheckerService);
                                 }
                                 catch (Exception ex)
                                 {
                                     Logger.Log(
                                         new ErrorLogging.Payload()
                                         {
-                                            ProductCheckerRequestId = request.Id
+                                            ExecutionId = execution.Id
                                         },
                                         String.Concat(ex.Message, "\n\n\n---- Inner Exception Message ----\n", ex.InnerException?.Message),
                                         String.Concat(ex.StackTrace, "\n\n\n---- Inner Exception Stack Trace ----\n", ex.InnerException?.StackTrace)
@@ -148,9 +110,9 @@ namespace ProductCheckerBack
                             Thread.Sleep(Configuration.GetRefresh());
                         }
 
-                        if (activeRequests.Count == 0)
+                        if (activeExecutions.Count == 0)
                         {
-                            Console.WriteLine("Server Sleeping... No requests found.");
+                            Console.WriteLine("Server Sleeping... No executions found.");
                             Thread.Sleep(Configuration.GetRefresh());
                         }
                     }
@@ -162,19 +124,19 @@ namespace ProductCheckerBack
                         String.Concat(ex.Message, "\n\n\n---- Inner Exception Message ----\n", ex.InnerException?.Message),
                         String.Concat(ex.StackTrace, "\n\n\n---- Inner Exception Stack Trace ----\n", ex.InnerException?.StackTrace)
                     );
-                    Console.WriteLine($"Server Sleeping... Error: {ex.InnerException?.Message}");
+                    Console.WriteLine($"Server Sleeping... Error: {ex.InnerException?.Message ?? ex.Message}");
                     Thread.Sleep(Configuration.GetRefresh());
                 }
             }
         }
      
-        static IRequestState GetRequestState(ProductCheckerService productCheckerService, ProductCheckerDbContext productCheckerDbContext, Request request)
+        static IExecutionState GetExecutionState(ProductCheckerService productCheckerService, ArtemisDbContext artemisDbContext, Execution execution)
         {
-            return request.Status switch
+            return execution.Status switch
             {
-                RequestStatus.FAILED => new ErrorState(),
-                RequestStatus.PROCESSING => new ProcessingState(productCheckerDbContext),
-                _ => new SuccessState(productCheckerDbContext),
+                ExecutionStatus.FAILED => new ErrorState(),
+                ExecutionStatus.PROCESSING => new ProcessingState(artemisDbContext),
+                _ => new SuccessState(artemisDbContext),
             };
         }
     }

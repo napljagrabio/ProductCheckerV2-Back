@@ -1,6 +1,6 @@
 using ProductCheckerBack.ProductChecker.Api.Response;
 
-namespace ProductCheckerBack.RequestState.DefaultStateHandler
+namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
 {
     internal sealed class ScanTaskResult
     {

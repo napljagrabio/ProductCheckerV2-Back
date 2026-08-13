@@ -1,9 +1,9 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace ProductCheckerBack.Models.ProductChecker
+namespace ProductCheckerBack.Models
 {
-    [Table("api_endpoints")]
+    [Table("link_checker_helpers")]
     public class ApiEndpoint
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
@@ -14,8 +14,5 @@ namespace ProductCheckerBack.Models.ProductChecker
 
         [Column("value")]
         public string? Value { get; set; }
-
-        [Column("created_at")]
-        public DateTime? CreatedAt { get; set; }
     }
 }

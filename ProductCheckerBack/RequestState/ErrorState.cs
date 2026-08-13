@@ -1,9 +1,9 @@
 using ProductCheckerBack.Artemis;
 using ProductCheckerBack.ProductCheckerState;
 
-namespace ProductCheckerBack.RequestState
+namespace ProductCheckerBack.ExecutionState
 {
-    internal class ErrorState : IRequestState
+    internal class ErrorState : IExecutionState
     {
         public void Process(ProductCheckerService productCheckerService)
         {

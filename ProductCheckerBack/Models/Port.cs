@@ -1,9 +1,9 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace ProductCheckerBack.Models.ProductChecker
+namespace ProductCheckerBack.Models
 {
-    [Table("product_checker_ports")]
+    [Table("link_checker_workers")]
     public class Port
     {
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
@@ -12,16 +12,7 @@ namespace ProductCheckerBack.Models.ProductChecker
         [Column("api")]
         public string? Api { get; set; }
 
-        [Column("username")]
-        public string? Username { get; set; }
-
         [Column("status")]
         public int Status { get; set; }
-
-        [Column("created_at")]
-        public DateTime? CreatedAt { get; set; }
-
-        [Column("updated_at")]
-        public DateTime? UpdatedAt { get; set; }
     }
 }

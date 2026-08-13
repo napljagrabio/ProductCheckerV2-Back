@@ -2,33 +2,21 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace ProductCheckerBack.Models.ProductChecker
+namespace ProductCheckerBack.Models
 {
-    [Table("product_checker_listings")]
-    public class ProductListings
+    [Table("link_checker_schedule_execution_results")]
+    public class ExecutionListing
     {
         [Key]
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
         [Column("id")]
         public long Id { get; set; }
 
-        [Column("request_info_id")]
-        public long RequestInfoId { get; set; }
+        [Column("link_checker_schedule_execution_id")]
+        public long ExecutionId { get; set; }
 
         [Column("listing_id")]
         public long ListingId { get; set; }
-
-        [Column("case_number")]
-        [MaxLength(255)]
-        public string? CaseNumber { get; set; }
-
-        [Column("platform")]
-        [MaxLength(255)]
-        public string Platform { get; set; }
-
-        [Column("url")]
-        [MaxLength(255)]
-        public string Url { get; set; }
 
         [Column("status")]
         [MaxLength(50)]
@@ -48,7 +36,19 @@ namespace ProductCheckerBack.Models.ProductChecker
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
-        [ForeignKey("RequestInfoId")]
-        public virtual RequestInfo RequestInfo { get; set; }
+        [ForeignKey("ExecutionId")]
+        public virtual Execution Execution { get; set; }
+
+        [ForeignKey(nameof(ListingId))]
+        public virtual Listing Listing { get; set; }
+
+        [NotMapped]
+        public string? CaseNumber => Listing?.Case?.CaseNumber;
+
+        [NotMapped]
+        public string Url => Listing?.Url ?? string.Empty;
+
+        [NotMapped]
+        public string Platform => Listing?.Platform?.Name ?? "Unknown Platform";
     }
 }

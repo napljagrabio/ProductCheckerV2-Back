@@ -8,124 +8,116 @@ using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Net.Http;
-using ProductCheckerBack.Models.ProductChecker;
 using ProductCheckerBack.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace ProductCheckerBack
 {
     internal class ProductCheckerService
     {
-        public readonly Request Request;
+        public readonly Execution Execution;
 
         private readonly HttpClient _httpClient;
-        private readonly ProductCheckerDbContext _productCheckerDbContext;
+        private readonly ArtemisDbContext _productCheckerDbContext;
 
-        public ProductCheckerService(Request request, ProductCheckerDbContext dbContext, HttpClient httpClient = null)
+        public ProductCheckerService(Execution execution, ArtemisDbContext dbContext, HttpClient httpClient = null)
         {
-            Request = request;
+            Execution = execution;
             _productCheckerDbContext = dbContext;
             _httpClient = httpClient ?? new HttpClient();
         }
 
 #nullable disable
 
-        public void MarkAsPending(bool forcedPendingCauseOfPriority = false)
+        public void MarkAsPending()
         {
-            if (forcedPendingCauseOfPriority) 
-            {
-                Request.RescanId = 1;
-            }
-            Request.Status = RequestStatus.PENDING;
-            Request.RequestEnded = null;
+            Execution.Status = ExecutionStatus.PENDING;
+            Execution.ExecutionEnded = null;
             _productCheckerDbContext.SaveChanges();
         }
 
         public void MarkAsProcessing()
         {
-            Request.Status = RequestStatus.PROCESSING;
-            Request.RequestEnded = null;
+            Execution.Status = ExecutionStatus.PROCESSING;
+            Execution.ExecutionStarted = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
+            Execution.ExecutionEnded = null;
             _productCheckerDbContext.SaveChanges();
         }
 
         public void MarkAsCompletedWithIssues(List<string> errors)
         {
-            Request.Errors = errors;
-            Request.Status = RequestStatus.COMPLETED_WITH_ISSUES;
-            Request.RequestEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
+            Execution.Errors = errors;
+            Execution.Status = ExecutionStatus.COMPLETED_WITH_ISSUES;
+            Execution.ExecutionEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
 
             _productCheckerDbContext.SaveChanges();
         }
 
         public void MarkAsFailed(List<string> errors)
         {
-            Request.Errors = errors;
-            Request.Status = RequestStatus.FAILED;
-            Request.RequestEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
+            Execution.Errors = errors;
+            Execution.Status = ExecutionStatus.FAILED;
+            Execution.ExecutionEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
 
             _productCheckerDbContext.SaveChanges();
         }
 
         public void MarkAsSuccess()
         {
-            Request.Status = RequestStatus.SUCCESS;
-            Request.RequestEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
+            Execution.Status = ExecutionStatus.SUCCESS;
+            Execution.ExecutionEnded = DateTime.UtcNow.AddHours(8); // Philippine Standard Time
 
             _productCheckerDbContext.SaveChanges();
         }
 
-        public List<ProductListings> GetAllProductListings()
+        public List<ExecutionListing> GetAllExecutionListings()
         {
-            EnsureRequestListingsLoaded();
+            EnsureExecutionListingsLoaded();
 
-            return Request?
-                .RequestInfo?
-                .ProductListings?
-                .ToList() ?? new List<ProductListings>();
+            return Execution?
+                .ExecutionListings?
+                .ToList() ?? new List<ExecutionListing>();
         }
 
-        public List<ProductListings> GetErrorProductListings()
+        public List<ExecutionListing> GetErrorExecutionListings()
         {
-            EnsureRequestListingsLoaded();
+            EnsureExecutionListingsLoaded();
 
             var errorStatuses = new HashSet<string> { "Not Available", "Available" };
 
-            return Request?
-                .RequestInfo?
-                .ProductListings?
+            return Execution?
+                .ExecutionListings?
                 .Where(listing => listing != null && !errorStatuses.Contains(listing.UrlStatus))
-                .ToList() ?? new List<ProductListings>();
+                .ToList() ?? new List<ExecutionListing>();
         }
 
-        public List<ProductListings> GetOrganizedListings(bool onlyErrors = false)
+        public List<ExecutionListing> GetOrganizedListings(bool onlyErrors = false)
         {
-            EnsureRequestListingsLoaded();
+            EnsureExecutionListingsLoaded();
 
-            var listings = new List<ProductListings>();
-            if (onlyErrors || Request.RescanId == 1)
+            var listings = new List<ExecutionListing>();
+            if (onlyErrors)
             {
-                listings = GetErrorProductListings();
+                listings = GetErrorExecutionListings();
             }
             else
             {
-                listings = GetAllProductListings();
+                listings = GetAllExecutionListings();
             }
 
-            return ProductListingQueueBuilder.BuildRoundRobinByPlatform(listings);
+            return ExecutionListingQueueBuilder.BuildRoundRobinByPlatform(listings);
         }
 
-        private void EnsureRequestListingsLoaded()
+        private void EnsureExecutionListingsLoaded()
         {
-            if (Request.RequestInfo == null)
+            if (!_productCheckerDbContext.Entry(Execution)
+                .Collection(execution => execution.ExecutionListings).IsLoaded)
             {
-                _productCheckerDbContext.Entry(Request)
-                    .Reference(r => r.RequestInfo)
-                    .Load();
-            }
-
-            if (Request.RequestInfo != null)
-            {
-                _productCheckerDbContext.Entry(Request.RequestInfo)
-                    .Collection(ri => ri.ProductListings)
+                _productCheckerDbContext.Entry(Execution)
+                    .Collection(execution => execution.ExecutionListings)
+                    .Query()
+                    .Include(result => result.Listing)
+                    .ThenInclude(listing => listing.Platform)
                     .Load();
             }
         }

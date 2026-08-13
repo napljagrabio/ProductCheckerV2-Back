@@ -1,13 +1,13 @@
 using ProductCheckerBack.ProductCheckerState;
-using ProductCheckerBack.RequestState.DefaultStateHandler;
+using ProductCheckerBack.ExecutionState.DefaultStateHandler;
 
-namespace ProductCheckerBack.RequestState
+namespace ProductCheckerBack.ExecutionState
 {
-    internal class ProcessingState : IRequestState
+    internal class ProcessingState : IExecutionState
     {
-        private readonly ProductCheckerDbContext _productCheckerDbContext;
+        private readonly ArtemisDbContext _productCheckerDbContext;
 
-        public ProcessingState(ProductCheckerDbContext productCheckerDbContext)
+        public ProcessingState(ArtemisDbContext productCheckerDbContext)
         {
             _productCheckerDbContext = productCheckerDbContext;
         }

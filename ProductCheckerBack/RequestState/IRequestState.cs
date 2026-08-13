@@ -1,6 +1,6 @@
 namespace ProductCheckerBack.ProductCheckerState
 {
-    internal interface IRequestState
+    internal interface IExecutionState
     {
         void Process(ProductCheckerService productCheckerService);
     }

@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ProductCheckerBack.ProductChecker.Api;
 
-namespace ProductCheckerBack.RequestState.DefaultStateHandler
+namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
 {
     internal sealed class StorageClearer
     {
@@ -18,7 +18,7 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             HttpClient? storageHttpClient = null;
             List<string> storageClearerUrls = [];
 
-            using (var db = new ProductCheckerDbContext())
+            using (var db = new ArtemisDbContext())
             {
                 storageClearerUrls = db.ApiEndpoints
                     .Where(s => s.Key == "server_storage_clearer_url")

@@ -1,4 +1,4 @@
-namespace ProductCheckerBack.RequestState.DefaultStateHandler
+namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
 {
     internal class HandlerProcessor : List<Type>
     {
@@ -31,7 +31,7 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             currentHandler.NextHandler = newHandler;
         }
 
-        public void Process(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
+        public void Process(ArtemisDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
             IHandler handler = InitializeHandlers();
             handler.Process(productCheckerDbContext, productCheckerService, errors, onlyErrors);

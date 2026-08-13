@@ -1,41 +1,34 @@
 ﻿using ProductCheckerBack.ErrorLogging;
 using ProductCheckerBack.Models.Logging;
-using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ProductCheckerBack
 {
     internal class Logger
     {
-        private static readonly Dictionary<string, Tool> ToolsByEnvironment = new Dictionary<string, Tool>(StringComparer.OrdinalIgnoreCase);
-        public static Tool Tool { get; private set; }
+        private static Tool? _tool;
 
-        private static Tool GetToolForCurrentEnvironment()
+        public static Tool Tool
         {
-            var environment = Configuration.GetCurrentEnvironment();
-            if (ToolsByEnvironment.TryGetValue(environment, out var tool))
+            get
             {
-                Tool = tool;
-                return tool;
-            }
+                if (_tool != null)
+                {
+                    return _tool;
+                }
 
-            using var db = new LoggingDbContext();
-            tool = db.Tools.First(t => t.Name == Configuration.GetToolName());
-            ToolsByEnvironment[environment] = tool;
-            Tool = tool;
-            return tool;
+                using var db = new LoggingDbContext();
+                _tool = db.Tools.First(t => t.Name == Configuration.GetToolName());
+                return _tool;
+            }
         }
 
         public static void Log(Payload payload, string message, string stackTrace)
         {
-            var tool = GetToolForCurrentEnvironment();
             using var db = new LoggingDbContext();
             db.Logs.Add(new ErrorLog()
             {
-                ToolId = tool.Id,
+                ToolId = Tool.Id,
                 Payload = payload,
                 Message = message,
                 StackTrace = stackTrace

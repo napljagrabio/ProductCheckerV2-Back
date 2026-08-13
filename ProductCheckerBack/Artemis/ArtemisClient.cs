@@ -16,6 +16,7 @@ namespace ProductCheckerBack.Artemis
 
         public AuthenticationApi AuthenticationApi { get; private set; }
         public DefaultValuesApi DefaultValuesApi { get; private set; }
+        public SendEmailReportApi SendEmailReportApi { get; private set; }
 
         static ArtemisClient()
         {
@@ -37,6 +38,7 @@ namespace ProductCheckerBack.Artemis
         {
             AuthenticationApi = new AuthenticationApi(_httpClient);
             DefaultValuesApi = new DefaultValuesApi(_httpClient);
+            SendEmailReportApi = new SendEmailReportApi(_httpClient);
         }
 
         public static ArtemisClient Instance

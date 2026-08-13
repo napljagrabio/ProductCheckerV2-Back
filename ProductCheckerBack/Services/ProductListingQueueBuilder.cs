@@ -1,17 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using ProductCheckerBack.Models.ProductChecker;
+using ProductCheckerBack.Models;
 
 namespace ProductCheckerBack.Services
 {
-    internal static class ProductListingQueueBuilder
+    internal static class ExecutionListingQueueBuilder
     {
-        public static List<ProductListings> BuildRoundRobinByPlatform(IEnumerable<ProductListings> listings)
+        public static List<ExecutionListing> BuildRoundRobinByPlatform(IEnumerable<ExecutionListing> listings)
         {
             if (listings == null)
             {
-                return new List<ProductListings>();
+                return new List<ExecutionListing>();
             }
 
             var allListings = listings.Where(listing => listing != null).ToList();
@@ -25,7 +25,7 @@ namespace ProductCheckerBack.Services
                 .OrderBy(platform => platform, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            var roundRobinListings = new List<ProductListings>(allListings.Count);
+            var roundRobinListings = new List<ExecutionListing>(allListings.Count);
             var index = 0;
             var hasMoreListings = true;
 

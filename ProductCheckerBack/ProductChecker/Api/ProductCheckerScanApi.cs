@@ -29,7 +29,7 @@ namespace ProductCheckerBack.ProductChecker.Api
 
         public async Task<ProductCheckerScanResponse> Scan(object payload, long listingId, string progress, string endpoint)
         {
-            Console.WriteLine($"[Request {progress}] Listing Id: {listingId} -> {endpoint}");
+            Console.WriteLine($"[Execution {progress}] Listing Id: {listingId} -> {endpoint}");
 
             var response = await _httpClient.PostAsJsonAsync("scan/product-checker", payload);
             var raw = await response.Content.ReadAsStringAsync();
@@ -71,15 +71,50 @@ namespace ProductCheckerBack.ProductChecker.Api
         {
             using (var db = new ArtemisDbContext())
             {
+                var status = result.Availability ? Status.AVAILABLE : Status.NOT_AVAILABLE;
+                var previousListingStatus = db.ListingStatus
+                    .Where(item => item.ListingId == result.ListingId)
+                    .OrderByDescending(item => item.Id)
+                    .FirstOrDefault();
+                Status? previousStatus = previousListingStatus?.Status;
+
+                if (previousStatus == status)
+                {
+                    return;
+                }
+
+                var statusText = GetStatusText(status);
                 var listingStatus = new ListingStatus
                 {
                     ListingId = result.ListingId,
-                    Status = result.Availability ? Status.AVAILABLE : Status.NOT_AVAILABLE,
+                    Status = status,
                     CheckedByProductChecker = 1
                 };
+
+                var generalHistory = new GeneralHistory
+                {
+                    UiType = "admin",
+                    ListingId = (ulong)result.ListingId,
+                    UserId = 1068,
+                    RauserId = 0,
+                    Action = previousStatus.HasValue ? "update" : "insert",
+                    Field = "listing_status.status",
+                    Value = statusText,
+                    Text = previousStatus.HasValue
+                        ? $"[Product Checker] Updated <b>Listing Status</b> from <b>{GetStatusText(previousStatus.Value)}</b> to <b>{statusText}</b>"
+                        : $"[Product Checker] Added <b>Listing Status</b> with the value of <b>{statusText}</b>",
+                    CreatedAt = DateTime.UtcNow.AddHours(8)
+                };
+
                 db.ListingStatus.Add(listingStatus);
+                db.GeneralHistory.Add(generalHistory);
                 db.SaveChanges();
             }
+        }
+
+        private static string GetStatusText(Status status)
+        {
+            return status == Status.NOT_AVAILABLE ? "NOT AVAILABLE" : "AVAILABLE";
         }
     }
 }

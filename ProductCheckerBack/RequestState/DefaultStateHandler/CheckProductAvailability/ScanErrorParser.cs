@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace ProductCheckerBack.RequestState.DefaultStateHandler
+namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
 { 
     internal static class ScanErrorParser
     {

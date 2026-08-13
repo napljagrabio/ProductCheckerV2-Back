@@ -7,10 +7,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using ProductCheckerBack.Models.ProductChecker;
 using ProductCheckerBack.ProductChecker.Api;
+using ProductCheckerBack.Artemis;
+using System.Net.Http;
 
-namespace ProductCheckerBack.RequestState.DefaultStateHandler
+namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
 {
     internal class CheckProductAvailability : IHandler
     {
@@ -18,14 +19,14 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
 
         public IHandler NextHandler { get; set; }
 
-        public void Process(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
+        public void Process(ArtemisDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
             ProcessAsync(productCheckerDbContext, productCheckerService, errors, onlyErrors)
                 .GetAwaiter()
                 .GetResult();
         }
 
-        private bool IsNotSupportedListing(ProductListings listing)
+        private bool IsNotSupportedListing(ExecutionListing listing)
         {
             if (listing == null || string.IsNullOrEmpty(listing.Platform))
             {
@@ -35,13 +36,13 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             return listing.Platform.Contains("Not Supported", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void FinalizeRequest(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors)
+        private void FinalizeExecution(ArtemisDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors)
         {
-            if (productCheckerService.GetErrorProductListings().Count == productCheckerService.GetAllProductListings().Count)
+            if (productCheckerService.GetErrorExecutionListings().Count == productCheckerService.GetAllExecutionListings().Count)
             {
                 productCheckerService.MarkAsFailed(errors);
             }
-            else if (productCheckerService.GetErrorProductListings().Count == 0)
+            else if (productCheckerService.GetErrorExecutionListings().Count == 0)
             {
                 productCheckerService.MarkAsSuccess();
             }
@@ -50,30 +51,22 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
                 productCheckerService.MarkAsCompletedWithIssues(errors);
             }
 
-            if (productCheckerService.Request != null)
+            var response = await ArtemisClient.Instance.SendEmailReportApi.Execute(1);
+            if (!response.IsSuccessStatusCode)
             {
-                productCheckerService.Request.UpdatedAt = DateTime.UtcNow.AddHours(8);
+                var responseBody = await response.Content.ReadAsStringAsync();
+                Logger.Log(
+                    new ErrorLogging.Payload
+                    {
+                        ExecutionId = productCheckerService.Execution.Id
+                    },
+                    $"[Product Checker] Failed To Send Email Report. HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {responseBody}",
+                    string.Empty);
             }
 
             Console.Clear();
 
             NextHandler?.Process(productCheckerDbContext, productCheckerService, errors);
-        }
-
-        private static bool HasHigherPriorityRequest(Request? currentRequest)
-        {
-            if (currentRequest == null || currentRequest.Priority == 1)
-            {
-                return false;
-            }
-
-            using var priorityDbContext = new ProductCheckerDbContext();
-            return priorityDbContext.Requests
-                .AsNoTracking()
-                .Any(req =>
-                    (req.Status == RequestStatus.PENDING || req.Status == RequestStatus.PROCESSING) &&
-                    req.Priority == 1 &&
-                    req.Id != currentRequest.Id);
         }
 
         private async Task ClearStorageAndRestartAsync(List<string> errors, int clearStorageThreshold)
@@ -87,7 +80,7 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             try
             {
                 List<string> restarterUrls = [];
-                using (var db1 = new ProductCheckerDbContext())
+                using (var db1 = new ArtemisDbContext())
                 {
                     restarterUrls = db1.ApiEndpoints
                         .Where(s => s.Key == "server_restarter_url")
@@ -114,15 +107,15 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             }
         }
 
-        private async Task ProcessAsync(ProductCheckerDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
+        private async Task ProcessAsync(ArtemisDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
-            var allListings = productCheckerService.GetOrganizedListings(onlyErrors) ?? new List<ProductListings>();
+            var allListings = productCheckerService.GetOrganizedListings(onlyErrors) ?? new List<ExecutionListing>();
             const string NotSupportedMessage = "Not supported platform in Product Checker";
 
             if (allListings.Count == 0)
             {
-                errors.Add("Request has no product listings to process.");
-                FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
+                errors.Add("Execution has no product listings to process.");
+                FinalizeExecution(productCheckerDbContext, productCheckerService, errors);
                 return;
             }
 
@@ -150,8 +143,8 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
 
             if (supportedListings.Count == 0)
             {
-                errors.Add("Request listings has no supported platforms.");
-                FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
+                errors.Add("Execution listings has no supported platforms.");
+                FinalizeExecution(productCheckerDbContext, productCheckerService, errors);
                 return;
             }
 
@@ -159,7 +152,7 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             if (activeEndpoints.Count == 0)
             {
                 errors.Add("No active product checker endpoints are configured.");
-                FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
+                FinalizeExecution(productCheckerDbContext, productCheckerService, errors);
                 return;
             }
 
@@ -169,8 +162,6 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             var totalCount = supportedListings.Count;
             var startedCount = 0;
             var listingById = supportedListings.ToDictionary(listing => listing.Id);
-            var currentRequest = productCheckerService.Request;
-            var yieldToHighPriority = false;
             var stopProcessing = false;
             var nextListingIndex = 0;
             var clearStorageThreshold = Configuration.GetClearStorageThreshold();
@@ -189,13 +180,6 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
 
                 while (listingsStartedInBatch < batchSize && nextListingIndex < supportedListings.Count)
                 {
-                    if (HasHigherPriorityRequest(currentRequest))
-                    {
-                        yieldToHighPriority = true;
-                        stopProcessing = true;
-                        break;
-                    }
-
                     await endpointSignal.WaitAsync().ConfigureAwait(false);
                     if (!endpointQueue.TryDequeue(out var endpoint))
                     {
@@ -260,18 +244,7 @@ namespace ProductCheckerBack.RequestState.DefaultStateHandler
             results.CompleteAdding();
             await saveTask.ConfigureAwait(false);
 
-            if (yieldToHighPriority)
-            {
-                productCheckerService.MarkAsPending(true);
-                if (currentRequest != null)
-                {
-                    currentRequest.UpdatedAt = DateTime.UtcNow.AddHours(8);
-                    productCheckerDbContext.SaveChanges();
-                }
-                return;
-            }
-
-            FinalizeRequest(productCheckerDbContext, productCheckerService, errors);
+            FinalizeExecution(productCheckerDbContext, productCheckerService, errors);
         }
     }
 }

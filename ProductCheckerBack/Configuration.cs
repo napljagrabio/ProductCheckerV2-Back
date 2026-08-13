@@ -1,150 +1,55 @@
-﻿using Microsoft.Extensions.Configuration;
-using System.Threading;
+using Microsoft.Extensions.Configuration;
 
 namespace ProductCheckerBack
 {
-    internal class Configuration
+    internal static class Configuration
     {
-        static readonly ConfigurationBuilder _configurationBuilder = new ConfigurationBuilder();
-        static readonly IConfiguration _configuration;
-        private static readonly AsyncLocal<string?> _currentEnvironment = new AsyncLocal<string?>();
-        private const string EnvironmentStage = "Stage";
-        private const string EnvironmentLive = "Live";
-        private const string DefaultEnvironment = EnvironmentStage;
+        private static readonly IConfiguration ConfigurationRoot = new ConfigurationBuilder()
+            .SetBasePath(AppContext.BaseDirectory)
+            .AddJsonFile("appSettings.json", optional: false, reloadOnChange: true)
+            .Build();
 
-        static Configuration()
+        public static string GetConnectionString(string dbContext = "ArtemisDbContext")
         {
-            _configurationBuilder.AddJsonFile("appSettings.json");
-            _configuration = _configurationBuilder.Build();
+            return GetRequiredValue($"ConnectionStrings:{dbContext}");
         }
 
-        public static string GetConnectionString(string dbContext = "ProductDbContext")
+        public static string GetBaseUrlConnectionString() => GetRequiredValue("ARTEMIS:BaseUrl");
+
+        public static string GetArtemisConnectionString() =>
+            GetRequiredValue("ConnectionStrings:ArtemisDbContext");
+
+        public static string GetLoggingConnectionString() =>
+            GetRequiredValue("ConnectionStrings:LoggingDbContext");
+
+        public static int GetRefresh() => GetIntValue("Refresh", 20000);
+
+        public static int GetClearStorageThreshold() => GetIntValue("ClearStorageThreshold", 200);
+
+        public static string GetToolName() => "Product Checker";
+
+        public static string GetArtemisLoginUsername() =>
+            GetRequiredValue("ARTEMIS:Credentials:Username");
+
+        public static string GetArtemisLoginPassword() =>
+            GetRequiredValue("ARTEMIS:Credentials:Password");
+
+        private static string GetRequiredValue(string key)
         {
-            return _configuration.GetConnectionString(dbContext);
-        }
+            var value = ConfigurationRoot[key];
 
-        public static void SetCurrentEnvironment(string? environment)
-        {
-            _currentEnvironment.Value = NormalizeEnvironment(environment);
-        }
-
-        public static string GetCurrentEnvironment()
-        {
-            return _currentEnvironment.Value ?? DefaultEnvironment;
-        }
-
-        public static string GetArtemisConnectionStringName()
-        {
-            return GetCurrentEnvironment() == EnvironmentLive
-                ? "Live"
-                : "Stage";
-        }
-
-        public static string GetBaseUrlConnectionString()
-        {
-            return GetCurrentEnvironment() == EnvironmentLive
-                ? GetBaseUrlLiveConnectionString()
-                : GetBaseUrlStageConnectionString();
-        }
-
-        public static string GetArtemisConnectionString()
-        {
-            return GetCurrentEnvironment() == EnvironmentLive
-                ? GetArtemisLiveConnectionString()
-                : GetArtemisStageConnectionString();
-        }
-
-        public static string GetLoggingConnectionString()
-        {
-            return GetCurrentEnvironment() == EnvironmentLive
-                ? GetLoggingLiveConnectionString()
-                : GetLoggingStageConnectionString();
-        }
-
-        //================== STAGE ENV ==================//
-
-        public static string GetBaseUrlStageConnectionString()
-        {
-            return _configuration.GetSection("Stage:BaseUrl").Value;
-        }
-
-        public static string GetArtemisStageConnectionString()
-        {
-            return _configuration.GetSection("Stage:ArtemisDbContext").Value;
-        }
-
-        public static string GetLoggingStageConnectionString()
-        {
-            return _configuration.GetSection("Stage:LoggingDbContext").Value;
-        }
-
-        //================== LIVE ENV ==================//
-
-        public static string GetBaseUrlLiveConnectionString()
-        {
-            return _configuration.GetSection("Live:BaseUrl").Value;
-        }
-
-        public static string GetArtemisLiveConnectionString()
-        {
-            return _configuration.GetSection("Live:ArtemisDbContext").Value;
-        }
-
-        public static string GetLoggingLiveConnectionString()
-        {
-            return _configuration.GetSection("Live:LoggingDbContext").Value;
-        }
-
-        //======================== General Settings ========================//
-
-        public static string GetEvidencePath()
-        {
-            return _configuration.GetSection("EvidencePath").Value;
-        }
-
-        public static int GetRefresh()
-        {
-            return Convert.ToInt32(_configuration.GetSection("Refresh").Value);
-        }
-
-        public static int GetClearStorageThreshold()
-        {
-            return Convert.ToInt32(_configuration.GetSection("ClearStorageThreshold").Value);
-        }
-
-        public static string GetToolName()
-        {
-            return "Product Checker";
-        }
-
-        public static string GetArtemisApiBaseUrl()
-        {
-            return _configuration.GetSection("ARTEMIS:BaseUrl").Value;
-        }
-
-        public static string GetArtemisLoginUsername()
-        {
-            return _configuration.GetSection("ARTEMIS:Credentials:Username").Value;
-        }
-
-        public static string GetArtemisLoginPassword()
-        {
-            return _configuration.GetSection("ARTEMIS:Credentials:Password").Value;
-        }
-
-        private static string NormalizeEnvironment(string? environment)
-        {
-            if (string.Equals(environment, EnvironmentLive, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(value))
             {
-                return EnvironmentLive;
+                throw new InvalidOperationException($"Configuration value '{key}' is missing.");
             }
 
-            if (string.Equals(environment, EnvironmentStage, StringComparison.OrdinalIgnoreCase))
-            {
-                return EnvironmentStage;
-            }
+            return value;
+        }
 
-            return DefaultEnvironment;
+        private static int GetIntValue(string key, int defaultValue)
+        {
+            var value = ConfigurationRoot[key];
+            return int.TryParse(value, out var result) ? result : defaultValue;
         }
     }
 }
