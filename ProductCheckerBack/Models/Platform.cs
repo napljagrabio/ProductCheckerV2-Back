@@ -19,7 +19,7 @@ namespace ProductCheckerBack.Models
         public int Availability { get; set; }
 
         [Column("created_at")]
-        public DateTime? CreatedAt { get; set; }
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow.AddHours(8);
 
         [Column("updated_at")]
         public DateTime? UpdateAt { get; set; }

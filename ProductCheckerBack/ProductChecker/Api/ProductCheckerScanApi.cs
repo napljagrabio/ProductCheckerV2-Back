@@ -51,70 +51,7 @@ namespace ProductCheckerBack.ProductChecker.Api
                 Console.WriteLine($"Product checker API returned no result for listing {listingId} via {endpoint}. Response: {raw}");
             }
 
-            TryUpdateListingStatus(result, listingId, endpoint);
             return result;
-        }
-
-        private static void TryUpdateListingStatus(ProductCheckerScanResponse result, long listingId, string endpoint)
-        {
-            try
-            {
-                UpdateListingStatus(result);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Warn] Failed to persist Artemis listing status for listing {listingId} via {endpoint}: {ex.Message}");
-            }
-        }
-
-        private static void UpdateListingStatus(ProductCheckerScanResponse result)
-        {
-            using (var db = new ArtemisDbContext())
-            {
-                var status = result.Availability ? Status.AVAILABLE : Status.NOT_AVAILABLE;
-                var previousListingStatus = db.ListingStatus
-                    .Where(item => item.ListingId == result.ListingId)
-                    .OrderByDescending(item => item.Id)
-                    .FirstOrDefault();
-                Status? previousStatus = previousListingStatus?.Status;
-
-                if (previousStatus == status)
-                {
-                    return;
-                }
-
-                var statusText = GetStatusText(status);
-                var listingStatus = new ListingStatus
-                {
-                    ListingId = result.ListingId,
-                    Status = status,
-                    CheckedByProductChecker = 1
-                };
-
-                var generalHistory = new GeneralHistory
-                {
-                    UiType = "admin",
-                    ListingId = (ulong)result.ListingId,
-                    UserId = 1068,
-                    RauserId = 0,
-                    Action = previousStatus.HasValue ? "update" : "insert",
-                    Field = "listing_status.status",
-                    Value = statusText,
-                    Text = previousStatus.HasValue
-                        ? $"[Product Checker] Updated <b>Listing Status</b> from <b>{GetStatusText(previousStatus.Value)}</b> to <b>{statusText}</b>"
-                        : $"[Product Checker] Added <b>Listing Status</b> with the value of <b>{statusText}</b>",
-                    CreatedAt = DateTime.UtcNow.AddHours(8)
-                };
-
-                db.ListingStatus.Add(listingStatus);
-                db.GeneralHistory.Add(generalHistory);
-                db.SaveChanges();
-            }
-        }
-
-        private static string GetStatusText(Status status)
-        {
-            return status == Status.NOT_AVAILABLE ? "NOT AVAILABLE" : "AVAILABLE";
         }
     }
 }

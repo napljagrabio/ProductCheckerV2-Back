@@ -28,7 +28,7 @@ namespace ProductCheckerBack.Models
         public IList<string>? Errors { get; set; }
 
         [Column("created_at")]
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow.AddHours(8);
 
         public virtual ICollection<ExecutionListing> ExecutionListings { get; set; } = new List<ExecutionListing>();
     }

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -11,10 +12,11 @@ namespace ProductCheckerBack.Models
     [Table("listing_status")]
     internal class ListingStatus
     {
+        [Key]
         [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
-
+        [Column("id")]
         [JsonIgnore]
-        public int Id { get; set; }
+        public ulong Id { get; set; }
 
         [Column("listing_id")]
         public long ListingId { get; set; }
@@ -24,6 +26,8 @@ namespace ProductCheckerBack.Models
 
         [Column("checked_by_product_checker")]
         public int CheckedByProductChecker { get; set; }
+        [Column("created_at")]
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow.AddHours(8);
     }
 
     enum Status

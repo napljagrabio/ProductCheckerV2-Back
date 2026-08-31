@@ -23,7 +23,7 @@ namespace ProductCheckerBack
             }
         }
 
-        public static void Log(Payload payload, string message, string stackTrace)
+        public static void Log(Payload? payload, string message, string? stackTrace)
         {
             using var db = new LoggingDbContext();
             db.Logs.Add(new ErrorLog()

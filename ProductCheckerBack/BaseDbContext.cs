@@ -41,51 +41,57 @@ namespace ProductCheckerBack
             }
 
             _savingChanges = true;
-            var trackedEntities = new List<EntityEntry>();
-            EntityEntry entityEntry = null;
-            while ((entityEntry = ChangeTracker.Entries().Where(e => (e.State == EntityState.Added || e.State == EntityState.Modified) && trackedEntities.FirstOrDefault(trackedEntity => trackedEntity.Entity == e.Entity) == null).FirstOrDefault()) != null)
+            try
             {
-                trackedEntities.Add(entityEntry);
-                var entityType = entityEntry.Entity.GetType();
-                var observerType = typeof(BaseObserver<>).MakeGenericType(entityType);
-                var relevantObservers = _observers.Where(o => o.GetType().IsSubclassOf(observerType) && !o.GetType().IsAbstract);
-
-                foreach (var observer in relevantObservers)
+                var trackedEntities = new List<EntityEntry>();
+                EntityEntry entityEntry = null;
+                while ((entityEntry = ChangeTracker.Entries().Where(e => (e.State == EntityState.Added || e.State == EntityState.Modified) && trackedEntities.FirstOrDefault(trackedEntity => trackedEntity.Entity == e.Entity) == null).FirstOrDefault()) != null)
                 {
-                    if (entityEntry.State == EntityState.Added)
+                    trackedEntities.Add(entityEntry);
+                    var entityType = entityEntry.Entity.GetType();
+                    var observerType = typeof(BaseObserver<>).MakeGenericType(entityType);
+                    var relevantObservers = _observers.Where(o => o.GetType().IsSubclassOf(observerType) && !o.GetType().IsAbstract);
+
+                    foreach (var observer in relevantObservers)
                     {
-                        observer.Creating(entityEntry);
-                    }
-                    else if (entityEntry.State == EntityState.Modified)
-                    {
-                        observer.Updating(entityEntry);
+                        if (entityEntry.State == EntityState.Added)
+                        {
+                            observer.Creating(entityEntry);
+                        }
+                        else if (entityEntry.State == EntityState.Modified)
+                        {
+                            observer.Updating(entityEntry);
+                        }
                     }
                 }
-            }
 
-            int result = base.SaveChanges();
-            _savingChanges = false;
+                int result = base.SaveChanges();
 
-            foreach (var entityEntry2 in trackedEntities)
-            {
-                var entityType = entityEntry2.Entity.GetType();
-                var observerType = typeof(BaseObserver<>).MakeGenericType(entityType);
-                var relevantObservers = _observers.Where(o => o.GetType().IsSubclassOf(observerType) && !o.GetType().IsAbstract);
-
-                foreach (var observer in relevantObservers)
+                foreach (var entityEntry2 in trackedEntities)
                 {
-                    if (entityEntry2.State == EntityState.Added)
+                    var entityType = entityEntry2.Entity.GetType();
+                    var observerType = typeof(BaseObserver<>).MakeGenericType(entityType);
+                    var relevantObservers = _observers.Where(o => o.GetType().IsSubclassOf(observerType) && !o.GetType().IsAbstract);
+
+                    foreach (var observer in relevantObservers)
                     {
-                        observer.Created(entityEntry2);
-                    }
-                    else if (entityEntry2.State == EntityState.Modified)
-                    {
-                        observer.Updated(entityEntry2);
+                        if (entityEntry2.State == EntityState.Added)
+                        {
+                            observer.Created(entityEntry2);
+                        }
+                        else if (entityEntry2.State == EntityState.Modified)
+                        {
+                            observer.Updated(entityEntry2);
+                        }
                     }
                 }
-            }
 
-            return result;
+                return result;
+            }
+            finally
+            {
+                _savingChanges = false;
+            }
         }
 
         private IEnumerable<Type> GetEntityTypes()

@@ -34,7 +34,7 @@ namespace ProductCheckerBack.Models
         public string Note { get; set; }
 
         [Column("created_at")]
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow.AddHours(8);
 
         [ForeignKey("ExecutionId")]
         public virtual Execution Execution { get; set; }

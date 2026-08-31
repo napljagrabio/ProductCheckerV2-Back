@@ -8,6 +8,8 @@ namespace ProductCheckerBack.ErrorLogging
 {
     internal class Payload
     {
-        public long ExecutionId { get; set; }
+        public long? ExecutionId { get; set; }
+        public long? ListingId { get; set; }
+        public string? Endpoint { get; set; }
     }
 }

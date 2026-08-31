@@ -15,9 +15,11 @@ namespace ProductCheckerBack.Models.Logging
         public int Id { get; set; }
         [Column("tool_id")]
         public int ToolId { get; set; }
-        public Payload Payload { get; set; }
-        public string Message { get; set; }
+        public Payload? Payload { get; set; }
+        public string Message { get; set; } = string.Empty;
         [Column("stack_trace")]
-        public string StackTrace { get; set; }
+        public string? StackTrace { get; set; } = string.Empty;
+        [Column("created_at")]
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow.AddHours(8);
     }
 }

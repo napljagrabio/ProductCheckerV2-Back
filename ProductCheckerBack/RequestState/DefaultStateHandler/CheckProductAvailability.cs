@@ -16,12 +16,14 @@ namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
     internal class CheckProductAvailability : IHandler
     {
         private readonly StorageClearer _storageClearer = new StorageClearer();
+        private bool _retriedOnce = false;
 
         public IHandler NextHandler { get; set; }
 
         public void Process(ArtemisDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
-            ProcessAsync(productCheckerDbContext, productCheckerService, errors, onlyErrors)
+            _retriedOnce = false;
+            ValidateAndProcessExecution(productCheckerDbContext, productCheckerService, errors, onlyErrors)
                 .GetAwaiter()
                 .GetResult();
         }
@@ -51,10 +53,10 @@ namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
                 productCheckerService.MarkAsCompletedWithIssues(errors);
             }
 
-            var response = await ArtemisClient.Instance.SendEmailReportApi.Execute(1);
+            var response = ArtemisClient.Instance.SendEmailReportApi.Execute(productCheckerService.Execution.Id).Result;
             if (!response.IsSuccessStatusCode)
             {
-                var responseBody = await response.Content.ReadAsStringAsync();
+                var responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 Logger.Log(
                     new ErrorLogging.Payload
                     {
@@ -107,7 +109,7 @@ namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
             }
         }
 
-        private async Task ProcessAsync(ArtemisDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
+        private async Task ValidateAndProcessExecution(ArtemisDbContext productCheckerDbContext, ProductCheckerService productCheckerService, List<string> errors, bool onlyErrors = false)
         {
             var allListings = productCheckerService.GetOrganizedListings(onlyErrors) ?? new List<ExecutionListing>();
             const string NotSupportedMessage = "Not supported platform in Product Checker";
@@ -156,6 +158,33 @@ namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
                 return;
             }
 
+            await ProcessAsync(productCheckerDbContext, errors, supportedListings, activeEndpoints)
+                .ConfigureAwait(false);
+
+            if (!_retriedOnce && productCheckerService.GetErrorExecutionListings().Count > 0)
+            {
+                var retryErrorListings = productCheckerService.GetOrganizedListings(true) ?? new List<ExecutionListing>();
+                var errorSupportedListings = retryErrorListings
+                .Where(listing => !IsNotSupportedListing(listing))
+                .ToList();
+
+                if (errorSupportedListings.Count > 0)
+                {
+                    _retriedOnce = true;
+                    await ProcessAsync(productCheckerDbContext, errors, errorSupportedListings, activeEndpoints)
+                        .ConfigureAwait(false);
+                }
+            }
+
+            FinalizeExecution(productCheckerDbContext, productCheckerService, errors);
+        }
+
+        private async Task ProcessAsync(
+            ArtemisDbContext productCheckerDbContext,
+            List<string> errors,
+            List<ExecutionListing> supportedListings,
+            List<string> activeEndpoints)
+        {
             var results = new BlockingCollection<ScanTaskResult>();
             var endpointQueue = new ConcurrentQueue<string>(activeEndpoints);
             var endpointSignal = new SemaphoreSlim(activeEndpoints.Count, activeEndpoints.Count);
@@ -243,8 +272,6 @@ namespace ProductCheckerBack.ExecutionState.DefaultStateHandler
 
             results.CompleteAdding();
             await saveTask.ConfigureAwait(false);
-
-            FinalizeExecution(productCheckerDbContext, productCheckerService, errors);
         }
     }
 }

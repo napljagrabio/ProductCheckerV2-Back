@@ -13,7 +13,9 @@ namespace ProductCheckerBack
         {
             builder.Property(c => c.Payload).HasConversion(
                 c => JsonConvert.SerializeObject(c, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }),
-                c => JsonConvert.DeserializeObject<Payload>(c, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }));
+                c => string.IsNullOrWhiteSpace(c)
+                    ? null
+                    : JsonConvert.DeserializeObject<Payload>(c, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }));
         }
     }
 }

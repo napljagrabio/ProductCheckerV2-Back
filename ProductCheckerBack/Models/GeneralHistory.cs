@@ -58,6 +58,19 @@ namespace ProductCheckerBack.Models
         public string? Text { get; set; }
 
         [Column("created_at", TypeName = "datetime")]
-        public DateTime CreatedAt { get; set; }
+        public DateTime CreatedAt { get; set; } = GetCurrentSingaporeTime();
+
+        private static DateTime GetCurrentSingaporeTime()
+        {
+            var current = DateTime.UtcNow.AddHours(8);
+            return new DateTime(
+                current.Year,
+                current.Month,
+                current.Day,
+                current.Hour,
+                current.Minute,
+                current.Second,
+                DateTimeKind.Unspecified);
+        }
     }
 }
